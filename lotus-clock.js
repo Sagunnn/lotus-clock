@@ -43,8 +43,8 @@ const RING_FILL = [0.55, 0.4, 0.28];
 const petalShape = (v) => Math.pow(Math.sin(Math.PI * v), 0.8) * (1 - 0.38 * v) * 1.25;   // onion dome
 
 /* ---------------------------------------------------------------------------
- * Sound: a physically-inspired Tibetan singing bowl and a 136.1 Hz "Om" drone,
- * shared by every clock.
+ * Sound: a physically-inspired Tibetan singing bowl, a 136.1 Hz "Om" drone and a sung
+ * "Om Mani Padme Hum" chant over it, shared by every clock.
  * Web Audio only, no files. Browsers need a user gesture before audio can play,
  * so the context is created on the first click/keypress after sound is wanted.
  * ------------------------------------------------------------------------- */
@@ -62,8 +62,33 @@ const bowl = (() => {
   // 528 Hz sine layer at 5% of its level. Pure tones, straight to the output.
   const OM_HZ = 136.1, HEART_HZ = 528, HEART_MIX = 0.05;
   const OM_LEVEL = 0.12;   // under the bowl strikes (which peak ~0.22); raise toward 0.3 for more presence
+
+  // The sung chant over the drone: a sawtooth "voice" with gentle vibrato, shaped by two
+  // band-pass formant filters into each vowel. It loops in its own rhythm (7.4 s a cycle),
+  // and OM and HUM sit on the drone's 136.1 Hz.
+  const VOWELS = {
+    Ooo: { f1: 400, f2: 800, q1: 10, q2: 10 },
+    Aaa: { f1: 700, f2: 1200, q1: 12, q2: 12 },
+    Eee: { f1: 300, f2: 2200, q1: 8, q2: 10 },
+    Mmm: { f1: 250, f2: 500, q1: 15, q2: 15 },
+  };
+  const CHANT = [
+    { text: 'OM', hz: 136.1, vowel: 'Ooo', dur: 1.8 },
+    { text: 'MA', hz: 144.0, vowel: 'Aaa', dur: 0.9 },
+    { text: 'NI', hz: 162.0, vowel: 'Eee', dur: 0.9 },
+    { text: 'PAD', hz: 180.0, vowel: 'Aaa', dur: 0.9 },
+    { text: 'ME', hz: 216.0, vowel: 'Eee', dur: 0.9 },
+    { text: 'HUM', hz: 136.1, vowel: 'Mmm', dur: 2.0 },
+  ];
+  // Overall chant level. The formant filters remove most of the sawtooth's energy, so this is
+  // higher than a plain mix would suggest: at 1.2 the syllables peak ~0.1, clearly above the
+  // drone in the voice range but still under a bowl strike.
+  const CHANT_GAIN = 1.2;
+  const CHANT_LEAD_IN = 1.2;     // let the drone settle before the first OM (s)
   let ctx = null, bus = null, out = null, noise = null, armed = false, drone = null;
   let omWanted = 0, om = null;   // how many clocks want the drone; the playing drone, if any
+  let chant = null;               // the running chant: its gain, position, scheduler and voices
+  const chantListeners = new Set();
 
   function init() {
     if (ctx) return true;
@@ -178,14 +203,88 @@ const bowl = (() => {
       heart.connect(heartGain).connect(g);
       drone136.start(t); heart.start(t);
       om = { g, oscs: [drone136, heart], heartGain };
+      chantStart();
     } else if (omWanted === 0 && om) {
       const o = om; om = null;
+      chantStop();
       o.g.gain.cancelScheduledValues(t);
       o.g.gain.setTargetAtTime(0.0001, t, 0.3);
       o.oscs.forEach((osc) => osc.stop(t + 1.6));
       o.oscs[0].onended = () => { o.oscs.forEach((osc) => osc.disconnect()); o.heartGain.disconnect(); o.g.disconnect(); };
     }
   }
+  // One sung syllable, scheduled at audio time t.
+  function chantVoice(step, t) {
+    const v = VOWELS[step.vowel], end = t + step.dur;
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(step.hz, t);
+    // Subtle vibrato, like a singer's breath: 5.5 Hz, ±1.5 Hz.
+    const vib = ctx.createOscillator(), vibGain = ctx.createGain();
+    vib.frequency.value = 5.5;
+    vibGain.gain.value = 1.5;
+    vib.connect(vibGain).connect(osc.frequency);
+    // Two formants make the vowel.
+    const f1 = ctx.createBiquadFilter(), f2 = ctx.createBiquadFilter();
+    f1.type = f2.type = 'bandpass';
+    f1.frequency.setValueAtTime(v.f1, t); f1.Q.setValueAtTime(v.q1, t);
+    f2.frequency.setValueAtTime(v.f2, t); f2.Q.setValueAtTime(v.q2, t);
+    // Breathing envelope: 0.2 s in, hold, 0.2 s out.
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0, t);
+    env.gain.linearRampToValueAtTime(0.3, t + 0.2);
+    env.gain.setValueAtTime(0.3, end - 0.2);
+    env.gain.linearRampToValueAtTime(0, end);
+    osc.connect(f1); osc.connect(f2);
+    f1.connect(env); f2.connect(env);
+    env.connect(chant.g);
+    osc.start(t); vib.start(t);
+    osc.stop(end + 0.05); vib.stop(end + 0.05);
+    const voice = { osc, vib, env };
+    const c = chant;
+    c.voices.add(voice);
+    osc.onended = () => { [osc, vib, vibGain, f1, f2, env].forEach((n) => n.disconnect()); c.voices.delete(voice); };
+  }
+
+  // Keep about a second of chant scheduled ahead on the audio clock (steady even when timers lag).
+  function chantPump() {
+    const c = chant;
+    if (!c) return;
+    const horizon = ctx.currentTime + 1.2;
+    while (c.next < horizon) {
+      const step = CHANT[c.idx], at = c.next;
+      chantVoice(step, at);
+      setTimeout(() => { if (chant === c) chantListeners.forEach((cb) => cb(step)); }, Math.max(0, (at - ctx.currentTime) * 1000));
+      c.next += step.dur;
+      c.idx = (c.idx + 1) % CHANT.length;
+    }
+    c.timer = setTimeout(chantPump, 250);
+  }
+
+  function chantStart() {
+    if (chant) return;
+    const g = ctx.createGain();
+    g.gain.value = CHANT_GAIN;
+    g.connect(out);
+    chant = { g, idx: 0, next: ctx.currentTime + CHANT_LEAD_IN, timer: 0, voices: new Set() };
+    chantPump();
+  }
+
+  // Stop the chant: fade any sounding or already-scheduled syllables quickly, then release.
+  function chantStop() {
+    const c = chant;
+    if (!c) return;
+    chant = null;
+    clearTimeout(c.timer);
+    const t = ctx.currentTime;
+    c.voices.forEach((v) => {
+      v.env.gain.cancelScheduledValues(t);
+      v.env.gain.setTargetAtTime(0, t, 0.08);
+      try { v.osc.stop(t + 0.5); v.vib.stop(t + 0.5); } catch (e) {}
+    });
+    setTimeout(() => c.g.disconnect(), 1500);
+  }
+
   function omWant(on) {
     omWanted = Math.max(0, omWanted + (on ? 1 : -1));
     omUpdate();
@@ -228,6 +327,8 @@ const bowl = (() => {
 
   return {
     ROOT, arm, strike, sing, droneLevel, omWant,
+    // Be told as each chant syllable starts: cb({ text, hz, vowel, dur }).
+    onChant(cb) { chantListeners.add(cb); return () => chantListeners.delete(cb); },
     // A deliberate press can start audio itself (it is a gesture).
     wake() { if (init()) { ctx.resume(); omUpdate(); } },
   };
@@ -520,6 +621,8 @@ export class LotusClock extends HTMLElement {
     if (want === !!this._droneOn) return;
     this._droneOn = want;
     bowl.omWant(want);
+    if (want) this._offChant = bowl.onChant((st) => this._emit('syllable', { syllable: st.text, hz: st.hz, vowel: st.vowel, duration: st.dur * 1000 }));
+    else if (this._offChant) { this._offChant(); this._offChant = null; }
   }
 
   /* ----- internals: time sources ---------------------------------------- */
