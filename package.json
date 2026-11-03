@@ -1,0 +1,28 @@
+{
+  "name": "lotus-clock",
+  "version": "1.0.0",
+  "description": "A kinetic clock web component: straight lines that curl into a lotus as the minute turns.",
+  "type": "module",
+  "main": "lotus-clock.js",
+  "module": "lotus-clock.js",
+  "exports": {
+    ".": "./lotus-clock.js"
+  },
+  "files": [
+    "lotus-clock.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": ["web-component", "custom-element", "clock", "timer", "pomodoro", "animation", "svg", "lotus"],
+  "author": "Sagun Pradhan",
+  "license": "MIT",
+  "homepage": "https://sagunnn.github.io/lotus-clock/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sagunnn/lotus-clock.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Sagunnn/lotus-clock/issues"
+  },
+  "sideEffects": true
+}

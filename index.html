@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>lotus-clock — a kinetic clock web component</title>
+  <meta name="description" content="A dependency-free web component: a clock whose second lines arrive straight and curl into a lotus as the minute turns.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;700&family=JetBrains+Mono:wght@400;500&display=swap">
+  <style>
+    :root {
+      --paper: #faf8f5; --ink: #141413; --muted: rgba(20, 20, 19, .56); --line: rgba(20, 20, 19, .14); --accent: #8a4fd6;
+      color-scheme: light;
+    }
+    :root[data-theme="dark"] {
+      --paper: #141413; --ink: #faf8f5; --muted: rgba(250, 248, 245, .56); --line: rgba(250, 248, 245, .16); --accent: #b98cff;
+      color-scheme: dark;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; min-height: 100dvh; background: var(--paper); color: var(--ink);
+      font: 15px/1.5 "Inter Tight", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      display: grid; grid-template-rows: auto 1fr auto; transition: background-color .4s, color .4s;
+    }
+    .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+    header, footer { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 20px 24px; flex-wrap: wrap; }
+    header a, footer a { color: inherit; text-decoration: none; opacity: .7; }
+    header a:hover, footer a:hover { opacity: 1; }
+    main { display: grid; place-items: center; padding: 8px 16px 24px; }
+    lotus-clock {
+      width: min(84vw, 72vh, 640px);
+      --lc-ink: var(--ink); --lc-accent: var(--accent);
+      --lc-font-mono: "JetBrains Mono", ui-monospace, monospace;
+      --lc-font-display: "Inter Tight", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px 22px; justify-content: center; align-items: center; margin-top: 20px; }
+    .group { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: center; }
+    .group > span { color: var(--muted); margin-right: 2px; }
+    button, select {
+      font: inherit; color: inherit; background: transparent; cursor: pointer;
+      border: 1px solid var(--line); border-radius: 3px; padding: 5px 10px; transition: border-color .2s, background-color .2s, color .2s;
+    }
+    button:hover, select:hover { border-color: var(--ink); }
+    button[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+    select option { color: #141413; }
+    .status { color: var(--muted); margin-top: 14px; min-height: 1.5em; text-align: center; }
+    code { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header class="mono">
+    <span>&lt;lotus-clock&gt;</span>
+    <a href="https://github.com/Sagunnn/lotus-clock">GitHub ↗</a>
+  </header>
+
+  <main>
+    <div>
+      <lotus-clock id="clock" sound></lotus-clock>
+      <div class="controls mono">
+        <div class="group">
+          <span>Time zone</span>
+          <select id="tz" aria-label="Time zone">
+            <option value="">Local</option>
+            <option value="Asia/Kathmandu">Kathmandu</option>
+            <option value="Europe/London">London</option>
+            <option value="America/New_York">New York</option>
+            <option value="Asia/Tokyo">Tokyo</option>
+          </select>
+        </div>
+        <div class="group">
+          <span>Countdown</span>
+          <button type="button" data-cd="1:00">1:00</button>
+          <button type="button" data-cd="5:00">5:00</button>
+          <button type="button" data-cd="25:00">25:00</button>
+          <button type="button" id="toggle">Pause</button>
+          <button type="button" id="reset">Reset</button>
+          <button type="button" id="back">Clock</button>
+        </div>
+        <div class="group">
+          <button type="button" id="sound" aria-pressed="true">Sound</button>
+          <button type="button" id="theme" aria-pressed="false">Dark</button>
+        </div>
+      </div>
+      <p class="status mono" id="status" aria-live="polite">Press the middle of the clock to ring the bowl.</p>
+    </div>
+  </main>
+
+  <footer class="mono">
+    <span>Watch the last seconds of a minute.</span>
+    <a href="https://github.com/Sagunnn/lotus-clock#readme">How to use ↗</a>
+  </footer>
+
+  <script type="module">
+    import './lotus-clock.js';
+
+    const clock = document.getElementById('clock');
+    const status = document.getElementById('status');
+    const toggle = document.getElementById('toggle');
+    const say = (t) => { status.textContent = t; };
+
+    document.getElementById('tz').addEventListener('change', (e) => {
+      if (e.target.value) clock.setAttribute('time-zone', e.target.value);
+      else clock.removeAttribute('time-zone');
+    });
+
+    document.querySelectorAll('[data-cd]').forEach((b) => b.addEventListener('click', () => {
+      clock.countdown(b.dataset.cd);
+      toggle.textContent = 'Pause';
+      say(`Counting down ${b.dataset.cd}`);
+    }));
+    toggle.addEventListener('click', () => {
+      if (clock.mode !== 'countdown') return say('Start a countdown first.');
+      clock.toggle();
+      toggle.textContent = clock.running ? 'Pause' : 'Resume';
+    });
+    document.getElementById('reset').addEventListener('click', () => { clock.reset(); toggle.textContent = 'Start'; });
+    document.getElementById('back').addEventListener('click', () => { clock.showClock(); say('Showing the time.'); });
+
+    document.getElementById('sound').addEventListener('click', (e) => {
+      const on = !clock.hasAttribute('sound');
+      clock.toggleAttribute('sound', on);
+      e.currentTarget.setAttribute('aria-pressed', String(on));
+    });
+    document.getElementById('theme').addEventListener('click', (e) => {
+      const dark = document.documentElement.dataset.theme !== 'dark';
+      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      e.currentTarget.setAttribute('aria-pressed', String(dark));
+    });
+
+    clock.addEventListener('complete', () => { say('Countdown complete.'); toggle.textContent = 'Start'; });
+    clock.addEventListener('bowl', () => say('Bowl rung.'));
+  </script>
+</body>
+</html>
