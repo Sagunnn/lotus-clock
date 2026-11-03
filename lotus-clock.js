@@ -27,6 +27,13 @@ const GLOW_MS = 1700;         // ripple of light through the digits at :00
 const TWIST_K = 0.26;         // twist a line keeps per radian the dial turns
 const LAG_K = 250;            // extra trail while the dial moves (rad per rad/ms)
 const SAMPLES = 40;
+// In the final turn the lines gather into a lotus: every 5 lines make one petal (12 petals),
+// long and short alternating. The outer pair of each group become the petal's edges.
+const PER_PETAL = 5;
+const PETALS = 60 / PER_PETAL;
+const petalLen = (g) => (g % 2 ? 0.72 : 1);
+const petalWid = (g) => (g % 2 ? 0.46 : 0.34);                       // half-width, share of length
+const petalShape = (u) => Math.sin(Math.PI * Math.pow(u, 1.36));     // pointed ends, fullest past the middle
 
 /* ---------------------------------------------------------------------------
  * Sound: a synthesised Tibetan singing bowl, shared by every clock on the page.
@@ -173,9 +180,8 @@ text.now { opacity: 1; font-weight: 600; }
 .ripple { fill: none; stroke: currentColor; stroke-opacity: .5; stroke-width: .75; vector-effect: non-scaling-stroke; }
 .ripple.big { stroke: var(--_accent); stroke-opacity: .55; }
 .converge { fill: none; stroke: var(--_accent); stroke-opacity: .75; stroke-width: .9; vector-effect: non-scaling-stroke; opacity: 0; }
-.lotus { opacity: 0; }
-.lotus path { fill: var(--_accent); stroke: var(--_accent); stroke-opacity: .5; stroke-width: .75; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-.r0 path { fill-opacity: .13; } .r1 path { fill-opacity: .2; } .r2 path { fill-opacity: .3; }
+.petal { fill: var(--_accent); stroke: none; opacity: 0; }
+.petal.long { fill-opacity: .16; } .petal.short { fill-opacity: .3; }
 .clock {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   display: flex; align-items: baseline; white-space: nowrap;
@@ -426,12 +432,9 @@ export class LotusClock extends HTMLElement {
   _buildSvg() {
     const svg = this._el.svg;
     this._gLabels = this._mk('g', { class: 'labels' }, svg);
-    this._gLotus = this._mk('g', { class: 'lotus' }, svg);
-    this._lotusRings = [
-      { n: 8, len: 0.98, w: 0.42, off: 0 },
-      { n: 8, len: 0.74, w: 0.46, off: Math.PI / 8 },
-      { n: 8, len: 0.5, w: 0.5, off: 0 },
-    ].map((ring, i) => Object.assign(ring, { g: this._mk('g', { class: `r${i}` }, this._gLotus) }));
+    // Petal fills sit behind the lines; their shape is taken from the lines every frame.
+    this._gPetals = this._mk('g', { class: 'petals' }, svg);
+    this._petals = Array.from({ length: PETALS }, (_, g) => this._mk('path', { class: g % 2 ? 'petal short' : 'petal long' }, this._gPetals));
     this._gLines = this._mk('g', { class: 'lines' }, svg);
     this._gRipples = this._mk('g', { class: 'ripples' }, svg);
     this._converge = [0, 1, 2].map(() => this._mk('circle', { class: 'converge' }, this._gRipples));
@@ -456,20 +459,6 @@ export class LotusClock extends HTMLElement {
     this._geo = { cx, cy, R, rIn, sparse: (TAU * R) / 60 < 22 };
     this._el.svg.setAttribute('viewBox', `0 0 ${host.width} ${host.height}`);
     Object.assign(this._el.bowl.style, { left: `${cx - rIn}px`, top: `${cy - rIn}px`, width: `${rIn * 2}px`, height: `${rIn * 2}px` });
-    // Lotus petals around (0, 0); turned and placed every frame.
-    const b0 = R * 0.05;
-    this._lotusRings.forEach((ring) => {
-      while (ring.g.firstChild) ring.g.firstChild.remove();
-      const L = R * ring.len, w = (L * ring.w) / 2;
-      for (let i = 0; i < ring.n; i++) {
-        const a = ring.off + (i * TAU) / ring.n, ca = Math.cos(a), sa = Math.sin(a);
-        const P = (x, y) => `${(ca * (b0 + x) - sa * y).toFixed(1)},${(sa * (b0 + x) + ca * y).toFixed(1)}`;
-        this._mk('path', {
-          d: `M${P(0, -w * 0.12)}C${P(L * 0.3, -w * 1.3)} ${P(L * 0.84, -w * 0.85)} ${P(L, 0)}` +
-             `C${P(L * 0.84, w * 0.85)} ${P(L * 0.3, w * 1.3)} ${P(0, w * 0.12)}Z`,
-        }, ring.g);
-      }
-    });
     this._placedRot = null;
     this._placeLabels();
     this._paintLabels();
@@ -506,6 +495,9 @@ export class LotusClock extends HTMLElement {
     const drag = s % 2 ? rand(1.05, 1.5) : rand(0.5, 0.95);
     this._lines.push({
       s, th: this._angle(s), drag,
+      g: Math.floor(s / PER_PETAL),                                       // which petal it joins
+      c: ((s % PER_PETAL) - (PER_PETAL - 1) / 2) / ((PER_PETAL - 1) / 2), // −1 … +1 across the petal
+      mFix: null, pts: [],
       twist: age * Math.abs(STEP) * TWIST_K * drag,
       f: rand(1, 2.4), w: rand(1.2, 2.8), phi: rand(0, TAU),
       born: now + delay, pluckAt: now + delay + GROW_MS * 0.75, pluckAmp: rand(5, 9),
@@ -542,7 +534,8 @@ export class LotusClock extends HTMLElement {
     this._lines
       .filter((st) => st.retractAt === null)
       .sort((a, b) => a.s - b.s)
-      .forEach((st, i) => { st.retractAt = now + i * 9; });
+      .forEach((st, i) => { st.retractAt = now + i * 9; st.mFix = this._form || 0; });   // keep the lotus shape while closing
+    this._form = 0;
   }
 
   _startOver(now, key) {
@@ -596,19 +589,9 @@ export class LotusClock extends HTMLElement {
     } else this._angVel = 0;
     this._lastRot = this._rot; this._lastFrame = now;
 
-    // Amethyst lotus: opens through the turn, fades as the minute changes.
-    let lv = 0, ls = 1;
-    if (!still && finale) {
-      if (turn > 0) { lv = smoothstep(Math.min(1, turn * 1.5)); ls = 0.3 + 0.7 * ease(turn); }
-      else if (now - this._rolledAt < 1300) { const f = (now - this._rolledAt) / 1300; lv = 1 - smoothstep(f); ls = 1 + 0.1 * ease(f); }
-    }
-    this._gLotus.style.opacity = lv.toFixed(3);
-    if (lv > 0.001) {
-      this._lotusRings.forEach((ring, i) => {
-        const deg = ((this._rot + (spin * i) / 8) * 180) / Math.PI;   // multiples of 45°: no jump at :00
-        ring.g.setAttribute('transform', `translate(${cx.toFixed(1)} ${cy.toFixed(1)}) rotate(${deg.toFixed(2)}) scale(${ls.toFixed(3)})`);
-      });
-    }
+    // How far the lines have gathered into the lotus: only during the final turn.
+    const form = still || !finale ? 0 : smoothstep(clamp(turn * 1.3, 0, 1));
+    if (turn > 0) this._form = form;   // remembered past :00 so the closing lotus keeps its shape
     this._placeLabels();
 
     // Lines.
@@ -628,7 +611,17 @@ export class LotusClock extends HTMLElement {
       const trail = st.twist - this._angVel * LAG_K * st.drag;
       const A = !still && now >= st.pluckAt ? st.pluckAmp * Math.exp(-(now - st.pluckAt) / 480) : 0;
 
+      // Its place in the lotus (only used while gathering): along the petal's axis, bowed across it.
+      const m = st.mFix === null ? form : st.mFix;
+      let ux = 0, uy = 0, vx = 0, vy = 0, Lp = 0, Wp = 0;
+      if (m > 0.001) {
+        const ax = this._angle(st.g * PER_PETAL + (PER_PETAL - 1) / 2) + this._rot;
+        ux = Math.cos(ax); uy = Math.sin(ax); vx = -uy; vy = ux;
+        Lp = R * petalLen(st.g); Wp = Lp * petalWid(st.g) * st.c;
+      }
+
       let d = '';
+      const pts = st.pts; pts.length = 0;
       for (let i = 0; i <= SAMPLES; i++) {
         const u = end * (i / SAMPLES);
         const x = R * u;
@@ -639,11 +632,40 @@ export class LotusClock extends HTMLElement {
           const cl = Math.cos(lag), sl = Math.sin(lag);
           [px, py] = [px * cl - py * sl, px * sl + py * cl];
         }
-        d += `${i ? 'L' : 'M'}${(cx + px).toFixed(1)},${(cy + py).toFixed(1)}`;
+        if (m > 0.001) {
+          const sh = petalShape(u);
+          px += (ux * Lp * u + vx * Wp * sh - px) * m;
+          py += (uy * Lp * u + vy * Wp * sh - py) * m;
+        }
+        const X = cx + px, Y = cy + py;
+        pts.push(X, Y);
+        d += `${i ? 'L' : 'M'}${X.toFixed(1)},${Y.toFixed(1)}`;
       }
+      st.m = m;
       st.path.setAttribute('d', d);
       st.path.classList.toggle('now', st.s === this._current && st.retractAt === null);
       return true;
+    });
+
+    // Fill each petal between its two edge lines, so the colour is shaped by the lines themselves.
+    const groups = new Map();
+    this._lines.forEach((st) => {
+      if (!(st.m > 0.01) || !st.pts.length) return;
+      const grp = groups.get(st.g) || { lo: null, hi: null, m: 0, n: 0 };
+      if (!grp.lo || st.c < grp.lo.c) grp.lo = st;
+      if (!grp.hi || st.c > grp.hi.c) grp.hi = st;
+      grp.m += st.m; grp.n++;
+      groups.set(st.g, grp);
+    });
+    this._petals.forEach((el, g) => {
+      const grp = groups.get(g);
+      if (!grp || grp.lo === grp.hi) { el.style.opacity = '0'; return; }
+      const a = grp.hi.pts, b = grp.lo.pts;
+      let d = `M${a[0].toFixed(1)},${a[1].toFixed(1)}`;
+      for (let i = 2; i < a.length; i += 2) d += `L${a[i].toFixed(1)},${a[i + 1].toFixed(1)}`;
+      for (let i = b.length - 2; i >= 0; i -= 2) d += `L${b[i].toFixed(1)},${b[i + 1].toFixed(1)}`;
+      el.setAttribute('d', d + 'Z');
+      el.style.opacity = (grp.m / grp.n).toFixed(3);
     });
 
     // Rings close in on the digits before :00.

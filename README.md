@@ -1,6 +1,6 @@
 # lotus-clock
 
-A kinetic clock as a drop-in web component. Each second a straight line grows from the time to its place on the dial; every step of the dial leaves a little twist behind, so the lines slowly curl and cross as the minute goes on. In the last seconds the dial makes a full turn, an amethyst lotus blooms underneath, and a ripple of light runs through the digits as the minute changes.
+A kinetic clock as a drop-in web component. Each second a straight line grows from the time to its place on the dial; every step of the dial leaves a little twist behind, so the lines slowly curl and cross as the minute goes on. In the last seconds the dial makes a full turn and the lines gather into a lotus, filled with amethyst between them; a ripple of light runs through the digits as the minute changes and the lotus closes back into the centre.
 
 No dependencies, no build step, one file. Works in plain HTML, React, Vue, Svelte or anything else that renders DOM.
 
@@ -8,7 +8,7 @@ No dependencies, no build step, one file. Works in plain HTML, React, Vue, Svelt
 
 <p align="center">
   <img src="docs/preview.png" width="32%" alt="Lines curling as the minute passes">
-  <img src="docs/preview-spin.png" width="32%" alt="Amethyst lotus during the final turn">
+  <img src="docs/preview-spin.png" width="32%" alt="The lines gathered into an amethyst lotus during the final turn">
   <img src="docs/preview-dark.png" width="32%" alt="Dark theme">
 </p>
 
@@ -16,7 +16,7 @@ No dependencies, no build step, one file. Works in plain HTML, React, Vue, Svelt
 
 - **Stepping dial.** The newest second always lands on the same spot; older seconds travel round.
 - **Lines that take shape from motion.** Straight on arrival, curving as the dial turns, tangling in the final spin.
-- **Minute finale.** One full turn, converging rings, a filled amethyst lotus and a ripple through the digits.
+- **Minute finale.** One full turn while the lines gather into a 12-petal lotus (the colour fills the space between each petal's edge lines), converging rings, and a ripple of light through the digits.
 - **Countdown mode.** Turn it into a focus timer with `countdown('25:00')`, with pause, resume and a `complete` event.
 - **Singing bowl (optional).** Sound synthesised with the Web Audio API: a water-drop per second, a rim-rub swell into the minute, and a bowl strike you can ring by pressing the middle.
 - **Any time zone.** Pass an IANA zone like `Asia/Kathmandu`.
@@ -28,7 +28,7 @@ No dependencies, no build step, one file. Works in plain HTML, React, Vue, Svelt
 **From a CDN** (no install):
 
 ```html
-<script type="module" src="https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.0.0/lotus-clock.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.0.1/lotus-clock.js"></script>
 ```
 
 **With npm** (straight from GitHub):
@@ -47,7 +47,7 @@ import 'lotus-clock';                    // registers <lotus-clock>
 ## Quick start
 
 ```html
-<script type="module" src="https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.0.0/lotus-clock.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.0.1/lotus-clock.js"></script>
 
 <lotus-clock style="width: 480px"></lotus-clock>
 ```
@@ -146,7 +146,7 @@ For deeper changes, the shadow DOM exposes parts: `::part(stage)`, `::part(time)
 <button id="go">Start focus</button>
 
 <script type="module">
-  import 'https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.0.0/lotus-clock.js';
+  import 'https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.0.1/lotus-clock.js';
 
   const clock = document.getElementById('pomodoro');
   const plan = ['25:00', '5:00', '25:00', '5:00', '25:00', '5:00', '25:00', '15:00'];
@@ -247,7 +247,7 @@ Current Chrome, Edge, Safari and Firefox. It uses Custom Elements, Shadow DOM, `
 
 - 60 points sit on a circle. Each second, a line grows from the centre of the time to the newest point, and the whole dial eases one step (6°) counterclockwise so the newest point is always in the same place.
 - Every frame, each line rotates its inner points by a lag that grows with how far the dial has turned since the line arrived, plus a little extra while the dial is moving. Neighbouring lines lag by different amounts, so their curves cross.
-- From :56 the dial adds one full turn. A three-ring SVG lotus fades and scales in underneath, rings close in on the digits, and at :00 a masked copy of the digits in the accent colour reveals a ripple of light.
+- From :56 the dial adds one full turn and every line eases toward a place in a lotus: each group of five lines becomes a petal (the middle line the midrib, the outer pair its edges), 12 petals alternating long and short. Each petal is filled with a path built from its two edge lines, so the colour is shaped by the lines. Rings close in on the digits, and at :00 a masked copy of the digits in the accent colour reveals a ripple of light while the lines draw back in.
 - The bowl is four sine oscillators (a fundamental, a partner 1.8 Hz above for the slow beating, and partials at ×2.71 and ×4.83) through a low-pass filter, a generated reverb and a short echo.
 
 ## Development
