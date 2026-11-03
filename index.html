@@ -130,6 +130,14 @@
 
     clock.addEventListener('complete', () => { say('Countdown complete.'); toggle.textContent = 'Start'; });
     clock.addEventListener('bowl', () => say('Bowl rung.'));
+
+    // The hidden one: circling the centre "rubs the rim" and the bowl sings.
+    let found = false;
+    clock.addEventListener('rubstart', () => {
+      say(found ? 'Singing…' : 'You found it. Keep circling and the bowl will sing.');
+      found = true;
+    });
+    clock.addEventListener('rubend', () => { if (found) say('Circle the centre again to make it sing.'); });
   </script>
 </body>
 </html>

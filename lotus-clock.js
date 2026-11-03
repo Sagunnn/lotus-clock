@@ -1,6 +1,6 @@
 /*!
  * <lotus-clock> — a kinetic clock web component.
- * Straight lines that curl into a lotus as the minute turns.
+ * Straight lines that curl as the minute turns, then fold into a crown lotus.
  * MIT License · https://github.com/Sagunnn/lotus-clock
  */
 
@@ -18,41 +18,54 @@ const reduceMotion = typeof matchMedia === 'function'
 
 /* Tuning */
 const GROW_MS = 800;          // a new line grows out from the centre
-const RETRACT_MS = 750;       // lines draw back in at the end of the minute
+const RETRACT_MS = 750;       // lines draw back in (mode change, or finale off)
 const STEP_MS = 650;          // the dial steps one place each second
 const STEP = -TAU / 60;       // …counterclockwise
+const INHALE_FROM = 55000;    // :55–:59, the lotus draws in a little each tick
 const SPIN_FROM = 56000;      // final full turn starts at :56
 const CONVERGE_FROM = 58200;  // rings close in on the digits
-const GLOW_MS = 1700;         // ripple of light through the digits at :00
+const GLOW_MS = 1700;         // ripple of light through the digits
+const BLOOM_MS = 950;         // :00, petals spring outward and dissolve
+const SHOCK_MS = 1100;        // radial shockwave across the rings
+const TREMOR_MS = 1500;       // hub micro-tremor after a strike
+const TREMOR_PX = 2.5;
 const TWIST_K = 0.26;         // twist a line keeps per radian the dial turns
 const LAG_K = 250;            // extra trail while the dial moves (rad per rad/ms)
 const SAMPLES = 40;
 // In the final turn every line folds into its own lotus petal, pointing at its second.
-// Line s joins ring s % 3, so the 60 lines make three rings of 20 petals, offset like scales
-// (a crown lotus). Values are shares of the space between the digits and the dial.
+// Line s joins ring s % 3 (0 inner … 2 outer), so 60 lines make three rings of 20 petals.
+// Values are shares of the space between the digits and the dial.
 const RINGS = 3;
-const RING_BASE = [-0.02, 0.17, 0.36];   // where each ring's petals start (inner → outer)
-const RING_LEN = [0.46, 0.52, 0.64];     // how long they are
-const RING_FILL = [0.55, 0.4, 0.28];     // inner petals are deeper
-const petalShape = (v) => Math.pow(Math.sin(Math.PI * v), 0.8) * (1 - 0.38 * v) * 1.25;   // onion-dome: round body, pointed tip
+const RING_BASE = [-0.02, 0.17, 0.36];
+const RING_LEN = [0.46, 0.52, 0.64];
+const RING_FILL = [0.55, 0.4, 0.28];
+const petalShape = (v) => Math.pow(Math.sin(Math.PI * v), 0.8) * (1 - 0.38 * v) * 1.25;   // onion dome
 
 /* ---------------------------------------------------------------------------
- * Sound: a synthesised Tibetan singing bowl, shared by every clock on the page.
+ * Sound: a physically-inspired Tibetan singing bowl, shared by every clock.
  * Web Audio only, no files. Browsers need a user gesture before audio can play,
  * so the context is created on the first click/keypress after sound is wanted.
  * ------------------------------------------------------------------------- */
 const bowl = (() => {
   const AC = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext);
   const ROOT = 216;
+  // Modal partials of a spun brass bowl. Each sounds as a pair of sines, the second detuned by
+  // `beat` Hz, so their phases drift in and out: the bowl's warm pulsing, with no LFO.
+  const PARTIALS = [
+    { ratio: 1.0, beat: 1.4, decay: 9.0, gain: 1.0 },
+    { ratio: 2.756, beat: 2.8, decay: 5.5, gain: 0.42 },
+    { ratio: 5.404, beat: 4.2, decay: 2.2, gain: 0.2 },
+  ];
   const PENTA = [216, 243, 273, 324, 364];
-  let ctx = null, bus = null, noise = null, armed = false;
+  let ctx = null, bus = null, noise = null, armed = false, drone = null;
 
   function init() {
     if (ctx) return true;
     if (!AC) return false;
     ctx = new AC();
     const master = ctx.createGain(); master.gain.value = 0.9; master.connect(ctx.destination);
-    const warm = ctx.createBiquadFilter(); warm.type = 'lowpass'; warm.frequency.value = 1800; warm.Q.value = 0.4;
+    const warm = ctx.createBiquadFilter(); warm.type = 'lowpass'; warm.frequency.value = 2400; warm.Q.value = 0.4;
+    // A quiet room: ~3 s of decaying stereo noise as the impulse response, plus a faint echo.
     const len = Math.floor(ctx.sampleRate * 3), ir = ctx.createBuffer(2, len, ctx.sampleRate);
     for (let ch = 0; ch < 2; ch++) {
       const d = ir.getChannelData(ch);
@@ -60,15 +73,15 @@ const bowl = (() => {
     }
     const verb = ctx.createConvolver(); verb.buffer = ir;
     const dry = ctx.createGain(); dry.gain.value = 0.75;
-    const wet = ctx.createGain(); wet.gain.value = 0.4;
+    const wet = ctx.createGain(); wet.gain.value = 0.38;
     const echo = ctx.createDelay(1); echo.delayTime.value = 0.27;
-    const fb = ctx.createGain(); fb.gain.value = 0.25;
-    const echoOut = ctx.createGain(); echoOut.gain.value = 0.1;
+    const fb = ctx.createGain(); fb.gain.value = 0.22;
+    const echoOut = ctx.createGain(); echoOut.gain.value = 0.09;
     warm.connect(dry).connect(master);
     warm.connect(verb).connect(wet).connect(master);
     warm.connect(echo); echo.connect(fb).connect(echo); echo.connect(echoOut).connect(master);
     bus = warm;
-    const n = Math.floor(ctx.sampleRate * 4);
+    const n = Math.floor(ctx.sampleRate * 2);
     noise = ctx.createBuffer(1, n, ctx.sampleRate);
     const nd = noise.getChannelData(0);
     for (let i = 0; i < n; i++) nd[i] = Math.random() * 2 - 1;
@@ -87,45 +100,56 @@ const bowl = (() => {
   // Sounds are scheduled once a context exists; a suspended one plays them when it resumes.
   const ok = () => !!ctx && ctx.state !== 'closed';
 
-  function voice(freq, t, attack, peak, decay) {
-    const o = ctx.createOscillator(), g = ctx.createGain();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(freq, t);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(peak, t + attack);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
-    o.connect(g).connect(bus);
-    o.start(t);
-    o.stop(t + attack + decay + 0.1);
+  // A beating pair (f and f + beat) into `dest`; nodes disconnect themselves when they stop.
+  function pair(freq, beat, t, end, dest, onDone) {
+    let alive = 2;
+    [0, beat].forEach((det) => {
+      const o = ctx.createOscillator(), h = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = freq + det;
+      h.gain.value = 0.5;
+      o.connect(h).connect(dest);
+      o.start(t); o.stop(end);
+      o.onended = () => { o.disconnect(); h.disconnect(); if (--alive === 0 && onDone) onDone(); };
+    });
   }
 
-  // Struck bowl: fundamental, a 1.8 Hz beating partner, two bronze partials.
-  function strike(f0 = ROOT, peak = 0.15, decay = 7, delay = 0) {
+  // A mallet strike: three modal partials with a 15 ms attack and tiered decays, plus 25 ms of
+  // low-passed noise for the wooden mallet's contact. Strikes layer polyphonically.
+  function strike(f0 = ROOT, peak = 0.16, delay = 0) {
     if (!ok()) return;
     const t = ctx.currentTime + delay + 0.01;
-    const f = f0 * (1 + (Math.random() - 0.5) * 0.004);
-    voice(f, t, 0.04, peak, decay);
-    voice(f + 1.8, t, 0.04, peak * 0.8, decay);
-    voice(f * 2.71, t, 0.04, peak * 0.4, decay / 2);
-    voice(f * 4.83, t, 0.04, peak * 0.22, decay / 2);
+    const f = f0 * (1 + (Math.random() - 0.5) * 0.003);
+    PARTIALS.forEach((p) => {
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(peak * p.gain, t + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.015 + p.decay);
+      g.connect(bus);
+      pair(f * p.ratio, p.beat, t, t + 0.015 + p.decay + 0.05, g, () => g.disconnect());
+    });
+    const src = ctx.createBufferSource(), lp = ctx.createBiquadFilter(), ng = ctx.createGain();
+    src.buffer = noise;
+    lp.type = 'lowpass'; lp.frequency.value = 1400; lp.Q.value = 0.7;
+    ng.gain.setValueAtTime(peak * 0.35, t);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.025);
+    src.connect(lp).connect(ng).connect(bus);
+    src.start(t, Math.random()); src.stop(t + 0.03);
+    src.onended = () => { src.disconnect(); lp.disconnect(); ng.disconnect(); };
   }
 
-  // Rim rub: a breathy swell.
-  function sing(f = ROOT, peak = 0.04, attack = 0.3, release = 2.5) {
+  // A rim-rub swell (used as the dial turns into the minute): the two lower beating partials.
+  function sing(f = ROOT, peak = 0.05, attack = 0.3, release = 2.5) {
     if (!ok()) return;
     const t = ctx.currentTime + 0.01;
-    voice(f, t, attack, peak, release);
-    voice(f + 1.8, t, attack, peak * 0.7, release);
-    voice(f * 2.71, t, attack, peak * 0.12, release * 0.6);
-    const src = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), g = ctx.createGain();
-    src.buffer = noise;
-    bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = 22;
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(peak * 1.4, t + attack);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + attack + release);
-    src.connect(bp).connect(g).connect(bus);
-    src.start(t, Math.random() * 2);
-    src.stop(t + attack + release + 0.1);
+    [[1.0, 1.4, 1], [2.756, 2.8, 0.3]].forEach(([r, beat, gm]) => {
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(peak * gm, t + attack);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + attack + release);
+      g.connect(bus);
+      pair(f * r, beat, t, t + attack + release + 0.05, g, () => g.disconnect());
+    });
   }
 
   // A soft water-drop for each second's ripple.
@@ -141,15 +165,49 @@ const bowl = (() => {
     g.gain.linearRampToValueAtTime(0.03, t + 0.006);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.32);
     o.connect(g).connect(bus);
-    o.start(t);
-    o.stop(t + 0.4);
+    o.start(t); o.stop(t + 0.4);
+    o.onended = () => { o.disconnect(); g.disconnect(); };
+  }
+
+  // Rim-rubbing drone: a sustained 1.0 + 2.756 beating pair whose level and brightness follow
+  // the player's angular speed. Built on first use, torn down after a few quiet seconds.
+  function droneLevel(level, bright) {
+    if (!ok()) return;
+    const t = ctx.currentTime;
+    if (!drone) {
+      if (level < 0.01) return;
+      const out = ctx.createGain(); out.gain.value = 0;
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 700; lp.Q.value = 0.5;
+      out.connect(lp).connect(bus);
+      const parts = [[1.0, 1.4, 1], [2.756, 2.8, 0.25]].map(([r, beat, gv]) => {
+        const g = ctx.createGain(); g.gain.value = gv; g.connect(out);
+        const oscs = [0, beat].map((det) => {
+          const o = ctx.createOscillator(), h = ctx.createGain();
+          o.type = 'sine'; o.frequency.value = ROOT * r + det; h.gain.value = 0.5;
+          o.connect(h).connect(g); o.start();
+          return { o, h };
+        });
+        return { g, oscs };
+      });
+      drone = { out, lp, parts, level: 0, quietAt: 0 };
+    }
+    drone.out.gain.setTargetAtTime(level * 0.12, t, level > drone.level ? 0.25 : 0.9);
+    drone.parts[1].g.gain.setTargetAtTime(0.2 + 0.6 * bright, t, 0.3);
+    drone.lp.frequency.setTargetAtTime(650 + 1900 * bright, t, 0.3);
+    drone.level = level;
+    if (level >= 0.01) drone.quietAt = 0;
+    else if (!drone.quietAt) drone.quietAt = t;
+    else if (t - drone.quietAt > 5) {
+      drone.parts.forEach((p) => { p.oscs.forEach(({ o, h }) => { o.stop(); o.disconnect(); h.disconnect(); }); p.g.disconnect(); });
+      drone.out.disconnect(); drone.lp.disconnect();
+      drone = null;
+    }
   }
 
   return {
-    ROOT, arm,
+    ROOT, arm, strike, sing, drop, droneLevel,
     // A deliberate press can start audio itself (it is a gesture).
     wake() { if (init()) ctx.resume(); },
-    strike, sing, drop,
   };
 })();
 
@@ -168,10 +226,35 @@ const STYLES = `
   contain: layout paint; -webkit-user-select: none; user-select: none;
 }
 :host([hidden]) { display: none; }
-.stage { position: absolute; inset: 0; }
+.stage { position: absolute; inset: 0; --_inhale: 0; --_cx: 50%; --_cy: 50%; }
 svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
-.line { fill: none; stroke: var(--_line); stroke-width: .75; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+
+/* Lines / petals. --ring-index (0 inner … 2 outer) and --petal-index (0–19) drive the staggers.
+   From :55 the stroke warms toward the accent with --_inhale. */
+.line {
+  fill: var(--_accent); fill-opacity: 0;
+  stroke: color-mix(in srgb, var(--_accent) calc(var(--_inhale) * 60%), var(--_line));
+  stroke-width: .75; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke;
+}
+.line.formed { stroke: var(--_accent); stroke-opacity: .85; }
 .line.now { stroke: var(--_accent); stroke-opacity: .9; }
+/* Radial shockwave: hub → inner → middle → outer ring. */
+.line.shock { animation: lc-shock ${SHOCK_MS}ms cubic-bezier(.2, .7, .2, 1) calc(var(--ring-index) * 65ms); }
+@keyframes lc-shock {
+  0% { stroke: var(--_accent); stroke-opacity: 1; stroke-width: 2.6px; }
+  35% { stroke-width: 1.4px; }
+}
+/* :00 bloom: petals spring outward from the drawn-in pose and dissolve, staggered round the flower. */
+.line.bloom {
+  transform-box: view-box; transform-origin: var(--_cx) var(--_cy);
+  animation: lc-bloom ${BLOOM_MS}ms cubic-bezier(0.22, 1, 0.36, 1) calc(var(--petal-index) * 8ms) both;
+}
+.line.bloom.shock {
+  animation: lc-bloom ${BLOOM_MS}ms cubic-bezier(0.22, 1, 0.36, 1) calc(var(--petal-index) * 8ms) both,
+             lc-shock ${SHOCK_MS}ms cubic-bezier(.2, .7, .2, 1) calc(var(--ring-index) * 65ms);
+}
+@keyframes lc-bloom { from { transform: scale(.95); } to { transform: scale(1.16); opacity: 0; } }
+
 text {
   font-family: inherit; font-size: 10px; letter-spacing: .04em; font-variant-numeric: tabular-nums;
   fill: currentColor; text-anchor: middle; dominant-baseline: central; opacity: 0; transition: opacity .5s;
@@ -181,8 +264,6 @@ text.now { opacity: 1; font-weight: 600; }
 .ripple { fill: none; stroke: currentColor; stroke-opacity: .5; stroke-width: .75; vector-effect: non-scaling-stroke; }
 .ripple.big { stroke: var(--_accent); stroke-opacity: .55; }
 .converge { fill: none; stroke: var(--_accent); stroke-opacity: .75; stroke-width: .9; vector-effect: non-scaling-stroke; opacity: 0; }
-.line { fill: var(--_accent); fill-opacity: 0; }
-.line.formed { stroke: var(--_accent); stroke-opacity: .85; }
 .aura {
   position: absolute; inset: -6%; pointer-events: none; opacity: 0;
   background: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--_accent) 34%, transparent) 0%, color-mix(in srgb, var(--_accent) 14%, transparent) 42%, transparent 68%);
@@ -215,12 +296,12 @@ text.now { opacity: 1; font-weight: 600; }
 }
 .bowl {
   position: absolute; z-index: 2; border: 0; padding: 0; border-radius: 50%;
-  background: transparent; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  background: transparent; cursor: pointer; touch-action: none; -webkit-tap-highlight-color: transparent;
 }
 .bowl:focus-visible { outline: 1.5px solid var(--_accent); outline-offset: 4px; }
 :host([interactive="false"]) .bowl { display: none; }
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+  *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; animation-delay: 0s !important; }
 }
 `;
 
@@ -276,13 +357,23 @@ export class LotusClock extends HTMLElement {
     this._rot = 0; this._placedRot = null; this._glowAt = -1;
     this._rotFrom = 0; this._rotTo = 0; this._rotAt = 0; this._rotStep = 0; this._steps = 0;
     this._rolledAt = -1e9; this._angVel = 0; this._lastRot = 0; this._lastFrame = 0;
+    this._form = 0; this._inhale = -1; this._tremorAt = -1e9; this._lastTf = '';
+    this._shockTimer = 0;
     this._onScreen = true;
+    // Rim rubbing: angular speed round the hub, smoothed, and how loudly the bowl sings.
+    this._rub = { omega: 0, level: 0, lastAngle: null, lastMove: 0, down: false, travel: 0, active: false, sentAt: 0 };
 
     this._frame = this._frame.bind(this);
     this._tick = this._tick.bind(this);
     this._remeasure = () => { this._measure(); this._kick(); };
     this._onVisibility = () => { this._tick(); this._kick(); };
-    this._el.bowl.addEventListener('click', () => this.ring());
+    this._onPointer = this._onPointer.bind(this);
+    ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'pointerleave'].forEach((t) => this._el.stage.addEventListener(t, this._onPointer));
+    this._el.bowl.addEventListener('click', () => {
+      // A circle drawn round the hub shouldn't also count as a tap on it.
+      if (this._rub.travel > 1.2) { this._rub.travel = 0; return; }
+      this.ring();
+    });
   }
 
   /* ----- public API ----------------------------------------------------- */
@@ -330,17 +421,19 @@ export class LotusClock extends HTMLElement {
   /** Leave countdown mode and show the time of day again. */
   showClock() { this._setMode('clock'); return this; }
 
-  /** Ring the bowl: ripples from the centre, a glow through the digits, and (with `sound`) a bowl strike. */
+  /** Strike the bowl: a shockwave across the rings, a tremor in the hub, ripples, a glow
+   *  through the digits and (with `sound`) a mallet strike. */
   ring() {
-    if (this.hasAttribute('sound')) { bowl.wake(); bowl.strike(bowl.ROOT, 0.16, 8); }
+    if (this.hasAttribute('sound')) { bowl.wake(); bowl.strike(bowl.ROOT, 0.17); }
     const g = this._geo;
     if (g) {
       const now = performance.now();
       for (let k = 0; k < 4; k++) this._addRipple(g.cx, g.cy, now + k * 260, 2200, 4, g.R + 40, true);
       this._highlight(this._el.hh.textContent, this._el.mm.textContent);
+      this._shock(now);
       this._lines.forEach((st) => {
         if (st.retractAt !== null) return;
-        st.pluckAt = now + 120 + 600 * Math.random();
+        st.pluckAt = now + 120 + st.ring * 65 + 400 * Math.random();
         st.pluckAmp = rand(5, 9);
       });
       this._kick();
@@ -371,17 +464,19 @@ export class LotusClock extends HTMLElement {
 
   disconnectedCallback() {
     clearTimeout(this._tickTimer);
+    clearTimeout(this._shockTimer);
     cancelAnimationFrame(this._raf); this._raf = 0;
     this._ro && this._ro.disconnect();
     this._io && this._io.disconnect();
     document.removeEventListener('visibilitychange', this._onVisibility);
+    if (this._rub.level > 0) { this._rub.level = 0; bowl.droneLevel(0, 0); }
   }
 
   attributeChangedCallback(name, oldV, newV) {
     if (oldV === newV || !this._el) return;
     if (name === 'time-zone' || name === 'hour12') { this._makeFormatter(); if (this._mode === 'clock' && this.isConnected) this._restart(); }
     else if (name === 'labels') this._paintLabels();
-    else if (name === 'sound' && newV !== null) bowl.arm();
+    else if (name === 'sound') { if (newV !== null) bowl.arm(); else bowl.droneLevel(0, 0); }
     else if (name === 'countdown' && this.isConnected) {
       if (newV === null) this.showClock();
       else this.countdown(newV, { autostart: this.hasAttribute('autostart') });
@@ -444,11 +539,11 @@ export class LotusClock extends HTMLElement {
   _buildSvg() {
     const svg = this._el.svg;
     this._gLabels = this._mk('g', { class: 'labels' }, svg);
-    // Lines in three ring groups, outer ring drawn first so inner petals sit on top.
+    // Lines in three ring groups, outer ring first so inner petals sit on top.
     this._gLines = this._mk('g', { class: 'lines' }, svg);
     this._ringGroups = [];
     [2, 1, 0].forEach((r) => { this._ringGroups[r] = this._mk('g', { class: `ring r${r}` }, this._gLines); });
-    // The centre of the lotus: a disc behind the time with a rosette of circles.
+    // The hub: a disc behind the time with a rosette of circles.
     this._gDisc = this._mk('g', { class: 'disc' }, svg);
     this._discFace = this._mk('circle', { class: 'face' }, this._gDisc);
     this._discTint = this._mk('circle', { class: 'tint' }, this._gDisc);
@@ -477,8 +572,10 @@ export class LotusClock extends HTMLElement {
     const rIn = Math.min(R - 20, k.width / 2 + 16);
     this._geo = { cx, cy, R, rIn, sparse: (TAU * R) / 60 < 22 };
     this._el.svg.setAttribute('viewBox', `0 0 ${host.width} ${host.height}`);
+    this._el.stage.style.setProperty('--_cx', `${cx.toFixed(1)}px`);
+    this._el.stage.style.setProperty('--_cy', `${cy.toFixed(1)}px`);
     Object.assign(this._el.bowl.style, { left: `${cx - rIn}px`, top: `${cy - rIn}px`, width: `${rIn * 2}px`, height: `${rIn * 2}px` });
-    // Disc and rosette (circles through the centre, like a spirograph), drawn around (0, 0).
+    // Hub disc and rosette (circles through the centre, like a spirograph), drawn around (0, 0).
     const dr = rIn - 3;
     [[this._discFace, dr], [this._discTint, dr], [this._discInner, dr * 0.84]].forEach(([c, r]) => { c.setAttribute('cx', 0); c.setAttribute('cy', 0); c.setAttribute('r', r.toFixed(1)); });
     const rr = dr * 0.4;
@@ -520,15 +617,17 @@ export class LotusClock extends HTMLElement {
   // A line arrives straight; every step of the dial leaves a little twist, so older lines curve.
   _addLine(s, now, delay, age) {
     const drag = s % 2 ? rand(1.05, 1.5) : rand(0.5, 0.95);
+    const ring = s % RINGS;
+    const path = this._mk('path', { class: 'line', part: 'petal' }, this._ringGroups[ring]);
+    path.style.setProperty('--ring-index', ring);
+    path.style.setProperty('--petal-index', Math.floor(s / RINGS));
     this._lines.push({
-      s, th: this._angle(s), drag,
-      ring: s % RINGS,                                                    // which ring of the lotus it joins
-      mFix: null,
+      s, th: this._angle(s), drag, ring,
       twist: age * Math.abs(STEP) * TWIST_K * drag,
       f: rand(1, 2.4), w: rand(1.2, 2.8), phi: rand(0, TAU),
       born: now + delay, pluckAt: now + delay + GROW_MS * 0.75, pluckAmp: rand(5, 9),
-      retractAt: null,
-      path: this._mk('path', { class: 'line' }, this._ringGroups[s % RINGS]),
+      retractAt: null, bloomAt: null, mFix: null,
+      path,
     });
   }
 
@@ -556,27 +655,52 @@ export class LotusClock extends HTMLElement {
     this._glowAt = performance.now();
   }
 
+  // Radial shockwave across the rings (CSS, staggered by --ring-index) and a hub tremor.
+  _shock(now) {
+    this._tremorAt = now;
+    if (this._still()) return;
+    const paths = this._lines.filter((st) => st.retractAt === null || st.bloomAt !== null).map((st) => st.path);
+    paths.forEach((p) => p.classList.remove('shock'));
+    void this._el.svg.getBoundingClientRect();   // restart the animation
+    paths.forEach((p) => p.classList.add('shock'));
+    clearTimeout(this._shockTimer);
+    this._shockTimer = setTimeout(() => paths.forEach((p) => p.classList.remove('shock')), SHOCK_MS + 3 * 65 + 50);
+  }
+
+  // Lines leave by drawing back into the centre (used on a mode change).
   _pullIn(now) {
     this._lines
       .filter((st) => st.retractAt === null)
       .sort((a, b) => a.s - b.s)
-      .forEach((st, i) => { st.retractAt = now + i * 9; st.mFix = this._form || 0; });   // keep the lotus shape while closing
+      .forEach((st, i) => { st.retractAt = now + i * 9; st.mFix = 0; });
     this._form = 0;
   }
 
+  // The minute turns over. With the finale, the drawn-in lotus blooms outward and dissolves
+  // (spring easing, staggered round the flower) as the bowl is struck; otherwise lines draw back in.
   _startOver(now, key) {
     this._rolledAt = now;
-    this._pullIn(now);
     const g = this._geo;
     const finale = this.getAttribute('finale') !== 'off';
+    const bloom = finale && !this._still() && this._form > 0.05;
+    if (bloom) {
+      this._lines.filter((st) => st.retractAt === null).forEach((st) => {
+        st.retractAt = now; st.bloomAt = now; st.mFix = this._form;
+        st.path.classList.add('bloom');
+      });
+      this._form = 0;
+      this._shock(now);
+    } else {
+      this._pullIn(now);
+    }
     if (g && finale) for (let k = 0; k < 3; k++) this._addRipple(g.cx, g.cy, now + k * 200, 1500, g.rIn, g.R + 30, true);
     const sound = this.hasAttribute('sound');
     if (this._mode === 'countdown' && key === '0') {
       this._cd.running = false; this._cd.remMs = 0;
-      if (sound) { bowl.strike(bowl.ROOT, 0.2, 9); bowl.strike(bowl.ROOT, 0.17, 9, 2.6); bowl.strike(bowl.ROOT / 2, 0.12, 10, 5.2); bowl.strike(bowl.ROOT, 0.15, 9, 5.2); }
+      if (sound) { bowl.strike(bowl.ROOT, 0.2); bowl.strike(bowl.ROOT, 0.17, 2.6); bowl.strike(bowl.ROOT, 0.15, 5.2); }
       this._emit('complete');
     } else {
-      if (sound && finale) { bowl.strike(bowl.ROOT, 0.2, 9); bowl.strike(bowl.ROOT / 2, 0.09, 10); }
+      if (sound && finale) bowl.strike(bowl.ROOT, 0.2);
       this._emit('minute', { value: this._read() });
     }
   }
@@ -588,6 +712,56 @@ export class LotusClock extends HTMLElement {
     this._rotAt = now;
   }
 
+  /* ----- internals: rim rubbing ---------------------------------------- */
+
+  _onPointer(e) {
+    const g = this._geo, rub = this._rub;
+    if (!g) return;
+    if (e.type === 'pointerup' || e.type === 'pointercancel') { rub.down = false; rub.lastAngle = null; return; }
+    if (e.type === 'pointerleave') { rub.lastAngle = null; return; }
+    const box = this.getBoundingClientRect();
+    const x = e.clientX - box.left - g.cx, y = e.clientY - box.top - g.cy;
+    const dist = Math.hypot(x, y);
+    if (e.type === 'pointerdown') {
+      rub.travel = 0;
+      rub.down = dist < g.rIn * 1.15;          // touch and pen: drag from the hub
+      rub.lastAngle = null;
+      return;
+    }
+    // pointermove: track the angle round the hub while dragging, or while a mouse circles it.
+    const inZone = dist > g.rIn * 0.3 && dist < g.rIn * 2.1;
+    if (!(rub.down || (e.pointerType === 'mouse' && inZone))) { rub.lastAngle = null; return; }
+    const a = Math.atan2(y, x), now = performance.now();
+    if (rub.lastAngle !== null) {
+      let da = a - rub.lastAngle;
+      da -= TAU * Math.round(da / TAU);
+      const w = da / (Math.max(8, now - rub.lastMove) / 1000);   // rad/s
+      rub.omega += (clamp(w, -40, 40) - rub.omega) * 0.25;
+      if (rub.down) rub.travel += Math.abs(da);
+    }
+    rub.lastAngle = a; rub.lastMove = now;
+    this._kick();
+  }
+
+  // Called every frame: how strongly the bowl sings follows a steady circular motion.
+  _updateRub(now) {
+    const rub = this._rub;
+    if (now - rub.lastMove > 80) rub.omega *= 0.9;                // they've stopped moving
+    const speed = Math.abs(rub.omega);
+    const target = clamp((speed - 2.2) / 6, 0, 1);               // ~1 turn per 3 s starts it singing
+    rub.level += (target - rub.level) * (target > rub.level ? 0.06 : 0.04);
+    if (rub.level < 0.002) rub.level = 0;
+    if (this.hasAttribute('sound') && now - rub.sentAt > 60 && (rub.level > 0 || rub.active)) {
+      rub.sentAt = now;
+      bowl.droneLevel(rub.level, clamp(speed / 12, 0, 1));
+    }
+    if (!rub.active && rub.level > 0.15) { rub.active = true; this._emit('rubstart', { speed }); }
+    else if (rub.active && rub.level < 0.02) { rub.active = false; this._emit('rubend'); }
+    return rub.level;
+  }
+
+  /* ----- internals: the frame ------------------------------------------ */
+
   _frame(now) {
     this._raf = 0;
     const g = this._geo;
@@ -597,6 +771,7 @@ export class LotusClock extends HTMLElement {
     const t = still ? 0 : now / 1000;
     const { cx, cy, R } = g;
     const msm = this._msm();
+    const stage = this._el.stage;
 
     // Step the dial; then one extra full turn at the end of the minute.
     const sp = still ? 1 : clamp((now - this._rotAt) / STEP_MS, 0, 1);
@@ -615,18 +790,40 @@ export class LotusClock extends HTMLElement {
     } else this._angVel = 0;
     this._lastRot = this._rot; this._lastFrame = now;
 
-    // How far the lines have folded into the lotus: only during the final turn.
+    // :55–:59, the inhalation: each tick draws the lotus in a little and warms its colour.
+    let inhale = 0;
+    if (!still && finale && msm >= INHALE_FROM) {
+      const k = msm - INHALE_FROM;
+      inhale = clamp((Math.floor(k / 1000) + ease(clamp((k % 1000) / 380, 0, 1))) / 5, 0, 1);
+    }
+    if (Math.abs(inhale - this._inhale) > 0.002) { stage.style.setProperty('--_inhale', inhale.toFixed(3)); this._inhale = inhale; }
+    const drawIn = 1 - 0.05 * inhale;
+
+    // How far the lines have folded into the lotus (only during the final turn).
     const form = still || !finale ? 0 : smoothstep(clamp(turn * 1.3, 0, 1));
-    if (turn > 0) this._form = form;   // remembered past :00 so the closing lotus keeps its shape
-    // How visible the lotus's centre and glow are: with the bloom, then fading after :00.
-    let bloom = form;
-    if (turn <= 0 && !still && finale && now - this._rolledAt < 900) bloom = 1 - smoothstep((now - this._rolledAt) / 900);
-    this._el.aura.style.opacity = (bloom * 0.95).toFixed(3);
-    this._gDisc.style.opacity = bloom.toFixed(3);
-    if (bloom > 0.001) {
+    if (turn > 0) this._form = form;   // remembered past :00 for the bloom
+
+    // The hub's micro-tremor: after a strike, and while the rim is being rubbed.
+    const rubLevel = this._updateRub(now);
+    const tp = (now - this._tremorAt) / TREMOR_MS;
+    const amp = Math.max(tp >= 0 && tp < 1 ? TREMOR_PX * (1 - tp) ** 2 : 0, rubLevel * 0.9);
+    let jx = 0, jy = 0;
+    if (!still && amp > 0.02) {
+      jx = amp * Math.sin(now * 0.113) * Math.cos(now * 0.029);
+      jy = amp * Math.sin(now * 0.097 + 1.3);
+    }
+    const tf = `translate(-50%, -50%) translate(${jx.toFixed(2)}px, ${jy.toFixed(2)}px)`;
+    if (tf !== this._lastTf) { this._el.clock.style.transform = this._el.glow.style.transform = tf; this._lastTf = tf; }
+
+    // The hub disc, rosette and glow: with the bloom, fading after :00.
+    let bloomVis = form;
+    if (turn <= 0 && !still && finale && now - this._rolledAt < 900) bloomVis = 1 - smoothstep((now - this._rolledAt) / 900);
+    this._el.aura.style.opacity = (bloomVis * 0.95).toFixed(3);
+    this._gDisc.style.opacity = bloomVis.toFixed(3);
+    if (bloomVis > 0.001) {
       const deg = (this._rot * 180) / Math.PI;
-      this._gDisc.setAttribute('transform', `translate(${cx.toFixed(1)} ${cy.toFixed(1)})`);
-      this._rosette.setAttribute('transform', `rotate(${(-deg * 1.5).toFixed(2)}) scale(${(0.6 + 0.4 * bloom).toFixed(3)})`);
+      this._gDisc.setAttribute('transform', `translate(${(cx + jx).toFixed(1)} ${(cy + jy).toFixed(1)})`);
+      this._rosette.setAttribute('transform', `rotate(${(-deg * 1.5).toFixed(2)}) scale(${(0.6 + 0.4 * bloomVis).toFixed(3)})`);
     }
     this._placeLabels();
 
@@ -635,23 +832,26 @@ export class LotusClock extends HTMLElement {
 
     // Lines.
     this._lines = this._lines.filter((st) => {
-      // How much of the line is drawn, and (for a closing lotus) how far its petal has shrunk.
       const m = st.mFix === null ? form : st.mFix;
-      let end = 1, shrink = 1;
-      if (st.retractAt !== null) {
+      let end = 1;
+      if (st.bloomAt !== null) {
+        // Blooming: CSS springs it outward and fades it; just keep its shape, then let it go.
+        if (now - st.bloomAt > BLOOM_MS + 20 * 8 + 120 || still) { st.path.remove(); return false; }
+      } else if (st.retractAt !== null) {
         const r = still ? 1 : clamp((now - st.retractAt) / RETRACT_MS, 0, 1);
         if (r >= 1) { st.path.remove(); return false; }
-        if (m > 0.001) shrink = 1 - ease(r);            // petals fold back into the centre
-        else end = 1 - ease(r);                           // plain lines draw back in
+        end = 1 - ease(r);
       }
       if (!still) end = Math.min(end, ease(clamp((now - st.born) / GROW_MS, 0, 1)));
-      if (end < 0.005 || shrink < 0.005) { st.path.setAttribute('d', ''); return true; }
+      if (end < 0.005) { st.path.setAttribute('d', ''); return true; }
+      const blooming = st.bloomAt !== null;
 
       const th = st.th + this._rot;
       const dx = Math.cos(th), dy = Math.sin(th), nx = -dy, ny = dx;
-      st.twist -= dr * TWIST_K * st.drag;
-      const trail = st.twist - this._angVel * LAG_K * st.drag;
-      const A = !still && now >= st.pluckAt ? st.pluckAmp * Math.exp(-(now - st.pluckAt) / 480) : 0;
+      if (!blooming) st.twist -= dr * TWIST_K * st.drag;
+      const trail = blooming ? st.twist : st.twist - this._angVel * LAG_K * st.drag;
+      // Ripples, strikes and rim-rubbing make the line tremble; the wave travels outward.
+      const A = (!still && now >= st.pluckAt ? st.pluckAmp * Math.exp(-(now - st.pluckAt) / 480) : 0) + rubLevel * 2.4;
 
       // Its petal: from the ring's base out to a point, aimed at the line's own second.
       let base = 0, L = 0, W = 0;
@@ -660,6 +860,7 @@ export class LotusClock extends HTMLElement {
         L = span * RING_LEN[st.ring];
         W = Math.min(L * 0.42, (base + L * 0.4) * Math.sin(half) * 1.3);
       }
+      const k = blooming ? 1 : drawIn;   // the bloom's CSS takes over the draw-in from 0.95
 
       let d = '';
       for (let i = 0; i <= SAMPLES; i++) {
@@ -680,10 +881,10 @@ export class LotusClock extends HTMLElement {
           px += (dx * qx + nx * qy - px) * m;
           py += (dy * qx + ny * qy - py) * m;
         }
-        d += `${i ? 'L' : 'M'}${(cx + px * shrink).toFixed(1)},${(cy + py * shrink).toFixed(1)}`;
+        d += `${i ? 'L' : 'M'}${(cx + px * k).toFixed(1)},${(cy + py * k).toFixed(1)}`;
       }
       st.path.setAttribute('d', m > 0.5 ? d + 'Z' : d);
-      st.path.style.fillOpacity = m > 0.001 ? (m * m * RING_FILL[st.ring]).toFixed(3) : '0';
+      st.path.style.fillOpacity = m > 0.001 ? Math.min(0.85, m * m * RING_FILL[st.ring] * (1 + 0.6 * inhale)).toFixed(3) : '0';
       st.path.classList.toggle('formed', m > 0.4);
       st.path.classList.toggle('now', st.s === this._current && st.retractAt === null && m < 0.4);
       return true;
@@ -705,8 +906,8 @@ export class LotusClock extends HTMLElement {
       const gp = (now - this._glowAt) / GLOW_MS;
       if (gp >= 1 || still) { glow.style.opacity = '0'; this._glowAt = -1; }
       else {
-        const span = Math.max(260, (this._el.clock.offsetWidth / 2) / 0.28);
-        const a = smoothstep(gp) * span, b = smoothstep(clamp((gp - 0.18) / 0.82, 0, 1)) * span;
+        const spanPx = Math.max(260, (this._el.clock.offsetWidth / 2) / 0.28);
+        const a = smoothstep(gp) * spanPx, b = smoothstep(clamp((gp - 0.18) / 0.82, 0, 1)) * spanPx;
         const size = `${a.toFixed(0)}px ${a.toFixed(0)}px, ${b.toFixed(0)}px ${b.toFixed(0)}px`;
         glow.style.webkitMaskSize = size; glow.style.maskSize = size; glow.style.opacity = '1';
       }

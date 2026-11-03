@@ -16,9 +16,10 @@ No dependencies, no build step, one file. Works in plain HTML, React, Vue, Svelt
 
 - **Stepping dial.** The newest second always lands on the same spot; older seconds travel round.
 - **Lines that take shape from motion.** Straight on arrival, curving as the dial turns, tangling in the final spin.
-- **Minute finale.** One full turn while each line folds into its own amethyst petal (three rings of 20, offset like scales, deeper toward the centre) around a disc with a turning rosette and a soft violet glow; converging rings, and a ripple of light through the digits.
+- **Minute finale, choreographed like a watch complication.** From :55 the lotus *inhales*: each tick draws it a little inward and warms its colour. From :56 the dial turns once while each line folds into its own amethyst petal (three rings of 20, offset like scales) around a disc with a turning rosette and a soft violet glow. At :00 it *blooms*: every petal springs outward and dissolves, staggered round the flower, as the bowl is struck.
 - **Countdown mode.** Turn it into a focus timer with `countdown('25:00')`, with pause, resume and a `complete` event.
-- **Singing bowl (optional).** Sound synthesised with the Web Audio API: a water-drop per second, a rim-rub swell into the minute, and a bowl strike you can ring by pressing the middle.
+- **Singing bowl (optional).** A physically-inspired Tibetan bowl synthesised with the Web Audio API: inharmonic partials in beating pairs, a soft mallet attack and tiered decays. Strike it by pressing the middle; a shockwave runs out across the petal rings and the hub trembles.
+- **Rim rubbing (easter egg).** Circle the centre with your cursor or finger and the bowl starts to sing: a sustained drone whose volume and brightness follow how fast you circle.
 - **Any time zone.** Pass an IANA zone like `Asia/Kathmandu`.
 - **Themeable.** Colours and fonts through CSS custom properties; follows `currentColor` by default.
 - **Respectful.** Honours `prefers-reduced-motion`, pauses when off-screen or in a background tab, and never plays sound until a user interacts.
@@ -28,7 +29,7 @@ No dependencies, no build step, one file. Works in plain HTML, React, Vue, Svelt
 **From a CDN** (no install):
 
 ```html
-<script type="module" src="https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.0.2/lotus-clock.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.1.0/lotus-clock.js"></script>
 ```
 
 **With npm** (straight from GitHub):
@@ -47,7 +48,7 @@ import 'lotus-clock';                    // registers <lotus-clock>
 ## Quick start
 
 ```html
-<script type="module" src="https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.0.2/lotus-clock.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.1.0/lotus-clock.js"></script>
 
 <lotus-clock style="width: 480px"></lotus-clock>
 ```
@@ -107,6 +108,8 @@ All events bubble and cross shadow boundaries. `event.detail.mode` is always set
 | `complete` | A countdown reaches 00:00 | — |
 | `start`, `pause` | Countdown started / paused | — |
 | `bowl` | The bowl was rung | — |
+| `rubstart` | Someone started "rubbing the rim" (circling the centre steadily) | `{ speed }` (rad/s) |
+| `rubend` | They stopped and the drone faded | — |
 
 `value.a` and `value.b` are the two numbers on screen (hours and minutes, or minutes and seconds in countdown mode).
 
@@ -128,7 +131,14 @@ lotus-clock {
 }
 ```
 
-For deeper changes, the shadow DOM exposes parts: `::part(stage)`, `::part(time)` and `::part(bowl)`.
+For deeper changes, the shadow DOM exposes parts: `::part(stage)`, `::part(time)`, `::part(bowl)` and `::part(petal)` (every line / petal).
+
+Each petal carries two custom properties you can use in your own animations: `--ring-index` (0 inner, 1 middle, 2 outer) and `--petal-index` (0–19 round its ring). The built-in shockwave staggers by `calc(var(--ring-index) * 65ms)` and the bloom by `calc(var(--petal-index) * 8ms)`.
+
+```css
+/* e.g. bolder lines */
+lotus-clock::part(petal) { stroke-width: 1.2px; }
+```
 
 **Dark mode** is a matter of changing `--lc-ink` (or `color`) and the accent:
 
@@ -147,7 +157,7 @@ For deeper changes, the shadow DOM exposes parts: `::part(stage)`, `::part(time)
 <button id="go">Start focus</button>
 
 <script type="module">
-  import 'https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.0.2/lotus-clock.js';
+  import 'https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.1.0/lotus-clock.js';
 
   const clock = document.getElementById('pomodoro');
   const plan = ['25:00', '5:00', '25:00', '5:00', '25:00', '5:00', '25:00', '15:00'];
@@ -237,6 +247,7 @@ The file only touches the browser when it is imported, so import it on the clien
 
 - The time is exposed with `role="timer"` and an `aria-label` that stays current (it isn't announced on every change); the lines, numbers and lotus are hidden from screen readers.
 - The bowl is a real `<button>` (keyboard focusable, labelled "Ring the singing bowl"). Hide it with `interactive="false"`.
+- Rim rubbing is a bonus, not a requirement: every feature is reachable without it. Listen for `rubstart` if you want to tell people they found it (the demo updates its `aria-live` helper text).
 - With `prefers-reduced-motion: reduce`, the clock stops animating: lines appear in place and the finale is skipped.
 - Sound is off unless you add the `sound` attribute, and even then waits for a user interaction.
 
@@ -248,8 +259,11 @@ Current Chrome, Edge, Safari and Firefox. It uses Custom Elements, Shadow DOM, `
 
 - 60 points sit on a circle. Each second, a line grows from the centre of the time to the newest point, and the whole dial eases one step (6°) counterclockwise so the newest point is always in the same place.
 - Every frame, each line rotates its inner points by a lag that grows with how far the dial has turned since the line arrived, plus a little extra while the dial is moving. Neighbouring lines lag by different amounts, so their curves cross.
-- From :56 the dial adds one full turn and every line eases into a closed petal outline aimed at its own second: line `s` joins ring `s % 3`, so the 60 lines make three rings of 20 petals, and each line's own path is filled, so the petals are the lines. A disc with an 18-circle rosette and a radial glow fade in at the centre. Rings close in on the digits, and at :00 a masked copy of the digits in the accent colour reveals a ripple of light while the petals shrink back into the centre.
-- The bowl is four sine oscillators (a fundamental, a partner 1.8 Hz above for the slow beating, and partials at ×2.71 and ×4.83) through a low-pass filter, a generated reverb and a short echo.
+- From :55 a tick-stepped "inhale" scales every line toward the centre (to 0.95) and raises `--_inhale`, which mixes the accent into the strokes and deepens the fills.
+- From :56 the dial adds one full turn and every line eases into a closed petal outline aimed at its own second: line `s` joins ring `s % 3`, so the 60 lines make three rings of 20 petals, and each line's own path is filled, so the petals are the lines. A disc with an 18-circle rosette and a radial glow fade in at the centre, and rings close in on the digits.
+- At :00 every petal gets a CSS `bloom` animation: `scale(0.95)` → `scale(1.16)` and fade, with `cubic-bezier(0.22, 1, 0.36, 1)` and `calc(var(--petal-index) * 8ms)` delays, plus the ring-staggered shockwave. A masked copy of the digits reveals a ripple of light, and the hub trembles (a decaying 2.5 px micro-tremor over 1.5 s).
+- **The bowl.** Each strike spawns three modal partials at ×1.0 (216 Hz), ×2.756 and ×5.404. Each partial is a *pair* of sines, the second detuned by +1.4, +2.8 and +4.2 Hz, so their phases drift in and out: the bowl's natural pulsing, with no LFO. A 15 ms linear attack avoids clicks; decays are tiered at 9 s, 5.5 s and 2.2 s; 25 ms of low-passed noise adds the wooden mallet's contact. Every node disconnects itself when it finishes, so overlapping strikes layer cleanly. Everything runs through a low-pass filter, a generated room reverb and a faint echo.
+- **Rim rubbing.** Pointer movement around the hub is turned into an angle with `Math.atan2`, and its smoothed rate of change into angular velocity. A steady circle above ~2 rad/s swells a sustained drone (the ×1.0 and ×2.756 beating pairs) whose gain, upper-partial level and filter brightness follow your speed; when you stop it decays naturally, and its oscillators are torn down after a few quiet seconds.
 
 ## Development
 
