@@ -42,7 +42,8 @@ const RING_FILL = [0.55, 0.4, 0.28];
 const petalShape = (v) => Math.pow(Math.sin(Math.PI * v), 0.8) * (1 - 0.38 * v) * 1.25;   // onion dome
 
 /* ---------------------------------------------------------------------------
- * Sound: a physically-inspired Tibetan singing bowl, shared by every clock.
+ * Sound: a physically-inspired Tibetan singing bowl and a softly intoned mantra,
+ * shared by every clock.
  * Web Audio only, no files. Browsers need a user gesture before audio can play,
  * so the context is created on the first click/keypress after sound is wanted.
  * ------------------------------------------------------------------------- */
@@ -56,7 +57,17 @@ const bowl = (() => {
     { ratio: 2.756, beat: 2.8, decay: 5.5, gain: 0.42 },
     { ratio: 5.404, beat: 4.2, decay: 2.2, gain: 0.2 },
   ];
-  const PENTA = [216, 243, 273, 324, 364];
+  // "Om · Ma · Ni · Pad · Me · Hum": one syllable per second, so the mantra cycles 10 times a
+  // minute. Each has a pitch on a calm contour round ROOT, a length, and two formants (F1, F2)
+  // that glide from `from` to `to` to colour the vowel. `glide` = share of the syllable spent gliding.
+  const MANTRA = [
+    { name: 'Om',  f: 216, dur: 0.65, from: [450, 800],  to: [280, 900],   glide: 0.75, attack: 0.12 },  // open O → closed nasal M
+    { name: 'Ma',  f: 243, dur: 0.42, from: [280, 900],  to: [720, 1150],  glide: 0.18, attack: 0.05 },  // nasal onset → open Ah
+    { name: 'Ni',  f: 270, dur: 0.42, from: [320, 1900], to: [300, 2150],  glide: 0.25, attack: 0.05 },  // bright front Ee
+    { name: 'Pad', f: 243, dur: 0.40, from: [600, 1050], to: [620, 1100],  glide: 0.3,  attack: 0.008, plosive: true },
+    { name: 'Me',  f: 216, dur: 0.45, from: [300, 1600], to: [460, 1850],  glide: 0.25, attack: 0.05 },  // Eh / Ay
+    { name: 'Hum', f: 162, dur: 0.80, from: [350, 750],  to: [260, 850],   glide: 0.7,  attack: 0.1 },   // Oo → deep closed M
+  ];
   let ctx = null, bus = null, noise = null, armed = false, drone = null;
 
   function init() {
@@ -152,21 +163,68 @@ const bowl = (() => {
     });
   }
 
-  // A soft water-drop for each second's ripple.
-  function drop(delay = 0) {
+  // One mantra syllable: a soft sine bell at the syllable's pitch, plus a quiet sub-octave
+  // sawtooth "voice" shaped by two parallel band-pass formant filters that glide through the
+  // vowel. Tiny random variations in pitch, level and length keep it from sounding mechanical.
+  function mantra(step, delay = 0) {
     if (!ok()) return;
+    const sy = MANTRA[((step % 6) + 6) % 6];
     const t = ctx.currentTime + delay + 0.01;
-    const f = PENTA[Math.floor(Math.random() * PENTA.length)] * 4;
-    const o = ctx.createOscillator(), g = ctx.createGain();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(f * 0.7, t);
-    o.frequency.exponentialRampToValueAtTime(f * 1.15, t + 0.09);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(0.03, t + 0.006);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.32);
-    o.connect(g).connect(bus);
-    o.start(t); o.stop(t + 0.4);
-    o.onended = () => { o.disconnect(); g.disconnect(); };
+    const vary = (x, amt) => x * (1 + (Math.random() - 0.5) * amt);
+    const dur = vary(sy.dur, 0.08), peak = vary(0.045, 0.12), f = vary(sy.f, 0.004);
+    const end = t + dur;
+    const nodes = [];
+    const keep = (n) => { nodes.push(n); return n; };
+
+    // Syllable envelope for the voice.
+    const voice = keep(ctx.createGain());
+    voice.gain.setValueAtTime(0.0001, t);
+    voice.gain.linearRampToValueAtTime(peak, t + sy.attack);
+    voice.gain.setValueAtTime(peak, Math.max(t + sy.attack, end - dur * 0.45));
+    voice.gain.exponentialRampToValueAtTime(0.0001, end);
+    voice.connect(bus);
+
+    // Glottal source an octave down: rich in harmonics for the formants to pick from.
+    const src = keep(ctx.createOscillator());
+    src.type = 'sawtooth';
+    src.frequency.setValueAtTime(f / 2, t);
+    src.frequency.exponentialRampToValueAtTime((f / 2) * 0.994, end);   // a breath of downward drift
+    const drive = keep(ctx.createGain()); drive.gain.value = 1;
+    src.connect(drive);
+    [[0, 7, 2.2], [1, 8.5, 1.3]].forEach(([k, q, gain]) => {
+      const bp = keep(ctx.createBiquadFilter());
+      bp.type = 'bandpass'; bp.Q.value = q;
+      bp.frequency.setValueAtTime(sy.from[k], t);
+      bp.frequency.exponentialRampToValueAtTime(sy.to[k], t + Math.max(0.02, dur * sy.glide));
+      const g = keep(ctx.createGain()); g.gain.value = gain;
+      drive.connect(bp).connect(g).connect(voice);
+    });
+    src.start(t); src.stop(end + 0.05);
+
+    // Soft bell at the syllable's pitch, with a hint of the bowl's first overtone.
+    [[1, 0.8, 1.8], [2.756, 0.12, 0.9]].forEach(([ratio, lvl, len]) => {
+      const o = keep(ctx.createOscillator()), g = keep(ctx.createGain());
+      o.type = 'sine'; o.frequency.value = f * ratio;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(peak * lvl, t + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur * len);
+      o.connect(g).connect(bus);
+      o.start(t); o.stop(t + dur * len + 0.05);
+    });
+
+    // "Pad": a soft lip plosive, 8 ms of low-passed noise.
+    if (sy.plosive) {
+      const n = keep(ctx.createBufferSource()), lp = keep(ctx.createBiquadFilter()), g = keep(ctx.createGain());
+      n.buffer = noise;
+      lp.type = 'lowpass'; lp.frequency.value = 900;
+      g.gain.setValueAtTime(peak * 0.9, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.008);
+      n.connect(lp).connect(g).connect(bus);
+      n.start(t, Math.random()); n.stop(t + 0.012);
+    }
+
+    // Tidy up once the longest voice (the bell) has finished.
+    setTimeout(() => nodes.forEach((n) => n.disconnect()), (delay + dur * 1.8 + 0.3) * 1000);
   }
 
   // Rim-rubbing drone: a sustained 1.0 + 2.756 beating pair whose level and brightness follow
@@ -205,7 +263,8 @@ const bowl = (() => {
   }
 
   return {
-    ROOT, arm, strike, sing, drop, droneLevel,
+    ROOT, arm, strike, sing, mantra, droneLevel,
+    SYLLABLES: MANTRA.map((m) => m.name),
     // A deliberate press can start audio itself (it is a gesture).
     wake() { if (init()) ctx.resume(); },
   };
@@ -361,7 +420,7 @@ export class LotusClock extends HTMLElement {
     this._shockTimer = 0;
     this._onScreen = true;
     // Rim rubbing: angular speed round the hub, smoothed, and how loudly the bowl sings.
-    this._rub = { omega: 0, level: 0, lastAngle: null, lastMove: 0, down: false, travel: 0, active: false, sentAt: 0 };
+    this._rub = { omega: 0, level: 0, lastAngle: null, lastMove: 0, down: false, travel: 0, active: false, sentAt: 0, buzzAt: 0, rippleAt: 0 };
 
     this._frame = this._frame.bind(this);
     this._tick = this._tick.bind(this);
@@ -421,10 +480,11 @@ export class LotusClock extends HTMLElement {
   /** Leave countdown mode and show the time of day again. */
   showClock() { this._setMode('clock'); return this; }
 
-  /** Strike the bowl: a shockwave across the rings, a tremor in the hub, ripples, a glow
-   *  through the digits and (with `sound`) a mallet strike. */
+  /** Strike the bowl: a mallet strike, a shockwave across the rings, a tremor in the hub,
+   *  ripples and a glow through the digits. */
   ring() {
-    if (this.hasAttribute('sound')) { bowl.wake(); bowl.strike(bowl.ROOT, 0.17); }
+    // A deliberate press always sounds the bowl (it is a user gesture, so audio may start).
+    bowl.wake(); bowl.strike(bowl.ROOT, 0.18);
     const g = this._geo;
     if (g) {
       const now = performance.now();
@@ -516,7 +576,12 @@ export class LotusClock extends HTMLElement {
       const r = this._remaining(), k = Math.ceil(r / 60000);
       return 60000 - (r - (k - 1) * 60000);
     }
-    return Date.now() % 60000;   // every zone today is a whole-minute offset from UTC
+    // Clock mode: lock to the second the dial is showing, so :59's finale maths can't leak into
+    // :00 (or the reverse) in the few ms between the real second changing and _tick() catching up.
+    const now = Date.now();
+    if (this._current < 0) return now % 60000;
+    const wallSec = Math.floor(now / 1000) % 60;    // every zone today is a whole-minute offset from UTC
+    return this._current * 1000 + (wallSec === this._current ? now % 1000 : 999);
   }
 
   _label(k) { return this._mode === 'countdown' ? pad((60 - k) % 60) : pad(k); }
@@ -692,15 +757,16 @@ export class LotusClock extends HTMLElement {
       this._shock(now);
     } else {
       this._pullIn(now);
+      if (finale) this._shock(now);
     }
     if (g && finale) for (let k = 0; k < 3; k++) this._addRipple(g.cx, g.cy, now + k * 200, 1500, g.rIn, g.R + 30, true);
     const sound = this.hasAttribute('sound');
     if (this._mode === 'countdown' && key === '0') {
       this._cd.running = false; this._cd.remMs = 0;
-      if (sound) { bowl.strike(bowl.ROOT, 0.2); bowl.strike(bowl.ROOT, 0.17, 2.6); bowl.strike(bowl.ROOT, 0.15, 5.2); }
+      if (sound) { bowl.strike(bowl.ROOT, 0.22); bowl.strike(bowl.ROOT, 0.17, 2.6); bowl.strike(bowl.ROOT, 0.15, 5.2); }
       this._emit('complete');
     } else {
-      if (sound && finale) bowl.strike(bowl.ROOT, 0.2);
+      if (sound) bowl.strike(bowl.ROOT, 0.22);
       this._emit('minute', { value: this._read() });
     }
   }
@@ -726,6 +792,8 @@ export class LotusClock extends HTMLElement {
       rub.travel = 0;
       rub.down = dist < g.rIn * 1.15;          // touch and pen: drag from the hub
       rub.lastAngle = null;
+      // A drag round the rim suppresses the click, so wake the audio here (this is a gesture).
+      if (rub.down) bowl.wake();
       return;
     }
     // pointermove: track the angle round the hub while dragging, or while a mouse circles it.
@@ -738,6 +806,9 @@ export class LotusClock extends HTMLElement {
       const w = da / (Math.max(8, now - rub.lastMove) / 1000);   // rad/s
       rub.omega += (clamp(w, -40, 40) - rub.omega) * 0.25;
       if (rub.down) rub.travel += Math.abs(da);
+      // Circling detected: make sure the audio is awake. Only after a real gesture on the page
+      // (a drag, or any earlier click/tap), since browsers refuse to start audio from a mouse hover.
+      if (Math.abs(rub.omega) > 2.2 && (rub.down || navigator.userActivation?.hasBeenActive)) bowl.wake();
     }
     rub.lastAngle = a; rub.lastMove = now;
     this._kick();
@@ -751,9 +822,15 @@ export class LotusClock extends HTMLElement {
     const target = clamp((speed - 2.2) / 6, 0, 1);               // ~1 turn per 3 s starts it singing
     rub.level += (target - rub.level) * (target > rub.level ? 0.06 : 0.04);
     if (rub.level < 0.002) rub.level = 0;
-    if (this.hasAttribute('sound') && now - rub.sentAt > 60 && (rub.level > 0 || rub.active)) {
+    // Rubbing is deliberate, so the drone sings whether or not ambient `sound` is on.
+    if (now - rub.sentAt > 60 && (rub.level > 0 || rub.active)) {
       rub.sentAt = now;
       bowl.droneLevel(rub.level, clamp(speed / 12, 0, 1));
+    }
+    // A light buzz under the finger on phones while the rim is being rubbed.
+    if (rub.down && rub.level > 0.15 && now - rub.buzzAt > 180) {
+      rub.buzzAt = now;
+      try { navigator.vibrate?.(12); } catch (e) {}
     }
     if (!rub.active && rub.level > 0.15) { rub.active = true; this._emit('rubstart', { speed }); }
     else if (rub.active && rub.level < 0.02) { rub.active = false; this._emit('rubend'); }
@@ -806,7 +883,7 @@ export class LotusClock extends HTMLElement {
     // The hub's micro-tremor: after a strike, and while the rim is being rubbed.
     const rubLevel = this._updateRub(now);
     const tp = (now - this._tremorAt) / TREMOR_MS;
-    const amp = Math.max(tp >= 0 && tp < 1 ? TREMOR_PX * (1 - tp) ** 2 : 0, rubLevel * 0.9);
+    const amp = Math.max(tp >= 0 && tp < 1 ? TREMOR_PX * (1 - tp) ** 2 : 0, rubLevel * 1.8);
     let jx = 0, jy = 0;
     if (!still && amp > 0.02) {
       jx = amp * Math.sin(now * 0.113) * Math.cos(now * 0.029);
@@ -826,6 +903,12 @@ export class LotusClock extends HTMLElement {
       this._rosette.setAttribute('transform', `rotate(${(-deg * 1.5).toFixed(2)}) scale(${(0.6 + 0.4 * bloomVis).toFixed(3)})`);
     }
     this._placeLabels();
+
+    // While the rim sings, small ripples keep leaving the hub's edge.
+    if (!still && rubLevel > 0.25 && now - this._rub.rippleAt > 380) {
+      this._rub.rippleAt = now;
+      this._addRipple(cx, cy, now, 1100, g.rIn, g.rIn + 22 + 40 * rubLevel, false);
+    }
 
     const span = R - g.rIn;
     const half = Math.PI / 20;                          // half the angle between petals in one ring
@@ -851,7 +934,7 @@ export class LotusClock extends HTMLElement {
       if (!blooming) st.twist -= dr * TWIST_K * st.drag;
       const trail = blooming ? st.twist : st.twist - this._angVel * LAG_K * st.drag;
       // Ripples, strikes and rim-rubbing make the line tremble; the wave travels outward.
-      const A = (!still && now >= st.pluckAt ? st.pluckAmp * Math.exp(-(now - st.pluckAt) / 480) : 0) + rubLevel * 2.4;
+      const A = (!still && now >= st.pluckAt ? st.pluckAmp * Math.exp(-(now - st.pluckAt) / 480) : 0) + rubLevel * 3.2;
 
       // Its petal: from the ring's base out to a point, aimed at the line's own second.
       let base = 0, L = 0, W = 0;
@@ -948,7 +1031,7 @@ export class LotusClock extends HTMLElement {
       this._current = sec; this._minuteKey = key;
       const sound = this.hasAttribute('sound');
       if (!first && this._geo && !this._still()) this._pluck(sec, now + (rolled ? 380 : 0) + GROW_MS * 0.75);
-      if (!first && !rolled && sound) bowl.drop((GROW_MS * 0.75) / 1000);
+      if (!first && sound) bowl.mantra(sec % 6, (GROW_MS * 0.75) / 1000);   // Om · Ma · Ni · Pad · Me · Hum
       if (!first && sec === 56 && sound && this.getAttribute('finale') !== 'off') bowl.sing(bowl.ROOT, 0.05, Math.max(0.5, (60000 - this._msm()) / 1000), 3.5);
       if (rolled && !this._still() && this.getAttribute('finale') !== 'off') {
         if (mm.textContent !== p.b) { mm.classList.remove('roll'); void mm.offsetWidth; mm.classList.add('roll'); }
@@ -961,7 +1044,7 @@ export class LotusClock extends HTMLElement {
       colon.classList.remove('dim');
       setTimeout(() => colon.classList.add('dim'), 500);
       this._paintLabels();
-      if (!first) this._emit('second', { value: p });
+      if (!first) this._emit('second', { value: p, syllable: bowl.SYLLABLES[sec % 6] });
       this._kick();
     }
     const counting = this._mode === 'countdown';

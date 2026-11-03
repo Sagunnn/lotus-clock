@@ -44,7 +44,8 @@
     button:hover, select:hover { border-color: var(--ink); }
     button[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
     select option { color: #141413; }
-    .status { color: var(--muted); margin-top: 14px; min-height: 1.5em; text-align: center; }
+    .status { color: var(--muted); margin-top: 14px; min-height: 1.5em; text-align: center; transition: opacity .22s ease; }
+    .status.fading { opacity: 0; }
     code { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; }
   </style>
 </head>
@@ -82,7 +83,7 @@
           <button type="button" id="theme" aria-pressed="false">Dark</button>
         </div>
       </div>
-      <p class="status mono" id="status" aria-live="polite">Press the middle of the clock to ring the bowl.</p>
+      <p class="status mono" id="status" aria-live="polite">Press the middle of the clock to ring the bowl — or circle the rim.</p>
     </div>
   </main>
 
@@ -97,7 +98,14 @@
     const clock = document.getElementById('clock');
     const status = document.getElementById('status');
     const toggle = document.getElementById('toggle');
-    const say = (t) => { status.textContent = t; };
+    // Change the helper text with a short cross-fade (only when it actually changes).
+    let sayTimer = 0;
+    const say = (t) => {
+      if (status.textContent === t) return;
+      clearTimeout(sayTimer);
+      status.classList.add('fading');
+      sayTimer = setTimeout(() => { status.textContent = t; status.classList.remove('fading'); }, 220);
+    };
 
     document.getElementById('tz').addEventListener('change', (e) => {
       if (e.target.value) clock.setAttribute('time-zone', e.target.value);
@@ -129,15 +137,31 @@
     });
 
     clock.addEventListener('complete', () => { say('Countdown complete.'); toggle.textContent = 'Start'; });
-    clock.addEventListener('bowl', () => say('Bowl rung.'));
 
-    // The hidden one: circling the centre "rubs the rim" and the bowl sings.
-    let found = false;
-    clock.addEventListener('rubstart', () => {
-      say(found ? 'Singing…' : 'You found it. Keep circling and the bowl will sing.');
-      found = true;
+    // Helper text for the two ways to play the bowl: strike the middle, or rub the rim.
+    // After either, hint at the one they haven't tried; once they've done both, settle back.
+    const DEFAULT_HINT = 'Press the middle of the clock to ring the bowl — or circle the rim.';
+    const tried = { strike: false, rub: false };
+    let hintTimer = 0;
+    const hintNext = (delay) => {
+      clearTimeout(hintTimer);
+      hintTimer = setTimeout(() => {
+        if (!tried.rub) say('Now try circling the rim, slowly, like a mallet round a bowl.');
+        else if (!tried.strike) say('Now press the middle to strike it.');
+        else say(DEFAULT_HINT);
+      }, delay);
+    };
+    clock.addEventListener('bowl', () => {
+      tried.strike = true;
+      say('Bowl rung.');
+      hintNext(2600);
     });
-    clock.addEventListener('rubend', () => { if (found) say('Circle the centre again to make it sing.'); });
+    clock.addEventListener('rubstart', () => {
+      tried.rub = true;
+      clearTimeout(hintTimer);
+      say('Keep circling the rim to make the bowl sing.');
+    });
+    clock.addEventListener('rubend', () => hintNext(1200));
   </script>
 </body>
 </html>
