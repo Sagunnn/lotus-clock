@@ -30,7 +30,7 @@ No dependencies, no build step, one file. Works in plain HTML, React, Vue, Svelt
 **From a CDN** (no install):
 
 ```html
-<script type="module" src="https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.5.0/lotus-clock.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.6.0/lotus-clock.js"></script>
 ```
 
 **With npm** (straight from GitHub):
@@ -49,7 +49,7 @@ import 'lotus-clock';                    // registers <lotus-clock>
 ## Quick start
 
 ```html
-<script type="module" src="https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.5.0/lotus-clock.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.6.0/lotus-clock.js"></script>
 
 <lotus-clock style="width: 480px"></lotus-clock>
 ```
@@ -121,7 +121,10 @@ Theme it with CSS custom properties on the element (or any ancestor):
 ```css
 lotus-clock {
   --lc-ink: #141413;           /* digits, labels (default: currentColor) */
-  --lc-line: rgba(0,0,0,.2);   /* the lines (default: ink at 20%) */
+  --lc-line-from: #8a4fd6;     /* lines, lotus and rosette at the centre (default: the accent, amethyst)… */
+  --lc-line-to: #ec4899;       /* …fading to this further out (default: pink) */
+  --lc-line-opacity: .85;      /* how strong the lines are */
+  --lc-line: rgba(0,0,0,.2);   /* or one solid colour instead of the gradient */
   --lc-accent: #8a4fd6;        /* newest line, rings, lotus, glow (amethyst) */
   --lc-glow: rgba(138,79,214,.35);
   --lc-paper: transparent;     /* background */
@@ -158,7 +161,7 @@ lotus-clock::part(petal) { stroke-width: 1.2px; }
 <button id="go">Start focus</button>
 
 <script type="module">
-  import 'https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.5.0/lotus-clock.js';
+  import 'https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.6.0/lotus-clock.js';
 
   const clock = document.getElementById('pomodoro');
   const plan = ['25:00', '5:00', '25:00', '5:00', '25:00', '5:00', '25:00', '15:00'];

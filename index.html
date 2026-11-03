@@ -10,11 +10,11 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;700&family=JetBrains+Mono:wght@400;500&display=swap">
   <style>
     :root {
-      --paper: #faf8f5; --ink: #141413; --muted: rgba(20, 20, 19, .56); --line: rgba(20, 20, 19, .14); --accent: #8a4fd6;
+      --paper: #faf8f5; --ink: #141413; --muted: rgba(20, 20, 19, .56); --line: rgba(20, 20, 19, .14); --accent: #8a4fd6; --pink: #ec4899;
       color-scheme: light;
     }
     :root[data-theme="dark"] {
-      --paper: #141413; --ink: #faf8f5; --muted: rgba(250, 248, 245, .56); --line: rgba(250, 248, 245, .16); --accent: #b98cff;
+      --paper: #141413; --ink: #faf8f5; --muted: rgba(250, 248, 245, .56); --line: rgba(250, 248, 245, .16); --accent: #b98cff; --pink: #f472b6;
       color-scheme: dark;
     }
     * { box-sizing: border-box; }
@@ -30,7 +30,7 @@
     main { display: grid; place-items: center; padding: 8px 16px 24px; }
     lotus-clock {
       width: min(84vw, 72vh, 640px);
-      --lc-ink: var(--ink); --lc-accent: var(--accent);
+      --lc-ink: var(--ink); --lc-accent: var(--accent); --lc-line-to: var(--pink);
       --lc-font-mono: "JetBrains Mono", ui-monospace, monospace;
       --lc-font-display: "Inter Tight", "Helvetica Neue", Helvetica, Arial, sans-serif;
     }
