@@ -18,7 +18,7 @@ No dependencies, no build step, one file. Works in plain HTML, React, Vue, Svelt
 - **Lines that take shape from motion.** Straight on arrival, curving as the dial turns, tangling in the final spin.
 - **Minute finale, choreographed like a watch complication.** From :55 the lotus *inhales*: each tick draws it a little inward and warms its colour. From :56 the dial turns once while each line folds into its own amethyst petal (three rings of 20, offset like scales) around a disc with a turning rosette and a soft violet glow. At :00 it *blooms*: every petal springs outward and dissolves, staggered round the flower, as the bowl is struck.
 - **Countdown mode.** Turn it into a focus timer with `countdown('25:00')`, with pause, resume and a `complete` event.
-- **Singing bowl.** A physically-inspired Tibetan bowl synthesised with the Web Audio API: inharmonic partials in beating pairs, a soft mallet attack and tiered decays. Press the middle to strike it: a shockwave runs out across the petal rings and the hub trembles.
+- **Singing bowl.** A physically-inspired Tibetan bowl synthesised with the Web Audio API: inharmonic partials in beating pairs, a soft mallet attack and tiered decays. Press the middle to strike it: a shockwave runs out across the rings, the lines flicker neon green and red as it passes before settling back to their gradient, and the hub trembles.
 - **An "Om" drone (with `sound`).** While sound is on, a continuous 136.1 Hz sine (the "Om" tone) plays with a quiet 528 Hz layer, fading in and out gently. Several clocks on one page share one drone.
 - **Rim rubbing (easter egg).** Circle the centre with your cursor or finger and the bowl starts to sing: a sustained drone whose volume and brightness follow how fast you circle, while the lines and hub vibrate, small ripples leave the rim, and phones give a light buzz.
 - **Any time zone.** Pass an IANA zone like `Asia/Kathmandu`.
@@ -30,7 +30,7 @@ No dependencies, no build step, one file. Works in plain HTML, React, Vue, Svelt
 **From a CDN** (no install):
 
 ```html
-<script type="module" src="https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.6.0/lotus-clock.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.6.1/lotus-clock.js"></script>
 ```
 
 **With npm** (straight from GitHub):
@@ -49,7 +49,7 @@ import 'lotus-clock';                    // registers <lotus-clock>
 ## Quick start
 
 ```html
-<script type="module" src="https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.6.0/lotus-clock.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.6.1/lotus-clock.js"></script>
 
 <lotus-clock style="width: 480px"></lotus-clock>
 ```
@@ -125,6 +125,8 @@ lotus-clock {
   --lc-line-to: #ec4899;       /* …fading to this further out (default: pink) */
   --lc-line-opacity: .85;      /* how strong the lines are */
   --lc-line: rgba(0,0,0,.2);   /* or one solid colour instead of the gradient */
+  --lc-flash-a: #22ff55;       /* when the bowl is struck, the lines flicker between these */
+  --lc-flash-b: #ff2a45;       /* (default: neon green and red) */
   --lc-accent: #8a4fd6;        /* newest line, rings, lotus, glow (amethyst) */
   --lc-glow: rgba(138,79,214,.35);
   --lc-paper: transparent;     /* background */
@@ -161,7 +163,7 @@ lotus-clock::part(petal) { stroke-width: 1.2px; }
 <button id="go">Start focus</button>
 
 <script type="module">
-  import 'https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.6.0/lotus-clock.js';
+  import 'https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.6.1/lotus-clock.js';
 
   const clock = document.getElementById('pomodoro');
   const plan = ['25:00', '5:00', '25:00', '5:00', '25:00', '5:00', '25:00', '15:00'];

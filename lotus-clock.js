@@ -244,6 +244,9 @@ const STYLES = `
   --_line-from: var(--lc-line-from, var(--lc-line, var(--_accent)));
   --_line-to: var(--lc-line-to, var(--lc-line, #ec4899));
   --_line-opacity: var(--lc-line-opacity, .85);
+  /* When the bowl is struck, the lines flash between these two (neon green and red). */
+  --_flash-a: var(--lc-flash-a, #22ff55);
+  --_flash-b: var(--lc-flash-b, #ff2a45);
   --_accent: var(--lc-accent, #8a4fd6);
   --_glow: var(--lc-glow, color-mix(in srgb, var(--_accent) 35%, transparent));
   display: block; position: relative; aspect-ratio: 1 / 1; min-width: 200px; min-height: 200px;
@@ -277,6 +280,25 @@ svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible
   0% { stroke: var(--_accent); stroke-opacity: 1; stroke-width: 2.6px; }
   35% { stroke-width: 1.4px; }
 }
+/* Struck bowl: the (unformed) lines flicker neon green ↔ red as the wave passes, fading back to
+   their gradient. Petals keep the amethyst shock above. */
+.line.shock:not(.formed):not(.bloom) { animation: lc-flash ${SHOCK_MS}ms linear calc(var(--ring-index) * 65ms); }
+@keyframes lc-flash {
+  /* Each colour holds, then snaps to the other, so it stays vivid (no muddy blend in between). */
+  0% { stroke: var(--_flash-a); stroke-opacity: 1; stroke-width: 2.6px; }
+  12% { stroke: var(--_flash-a); }
+  14% { stroke: var(--_flash-b); }
+  26% { stroke: var(--_flash-b); }
+  28% { stroke: var(--_flash-a); stroke-width: 1.4px; }
+  42% { stroke: var(--_flash-a); }
+  44% { stroke: var(--_flash-b); }
+  60% { stroke: var(--_flash-b); }
+  62% { stroke: var(--_flash-a); }
+  78% { stroke: var(--_flash-a); }
+  80% { stroke: var(--_flash-b); stroke-opacity: .4; }
+  96% { stroke: var(--_flash-b); stroke-opacity: .15; }
+}
+
 /* :00 bloom: petals spring outward from the drawn-in pose and dissolve, staggered round the flower. */
 .line.bloom {
   transform-box: view-box; transform-origin: var(--_cx) var(--_cy);
