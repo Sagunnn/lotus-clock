@@ -19,7 +19,7 @@ No dependencies, no build step, one file. Works in plain HTML, React, Vue, Svelt
 - **Minute finale, choreographed like a watch complication.** From :55 the lotus *inhales*: each tick draws it a little inward and warms its colour. From :56 the dial turns once while each line folds into its own amethyst petal (three rings of 20, offset like scales) around a disc with a turning rosette and a soft violet glow. At :00 it *blooms*: every petal springs outward and dissolves, staggered round the flower, as the bowl is struck.
 - **Countdown mode.** Turn it into a focus timer with `countdown('25:00')`, with pause, resume and a `complete` event.
 - **Singing bowl.** A physically-inspired Tibetan bowl synthesised with the Web Audio API: inharmonic partials in beating pairs, a soft mallet attack and tiered decays. Press the middle to strike it: a shockwave runs out across the petal rings and the hub trembles.
-- **A mantra for the seconds (with `sound`).** Each second softly intones one syllable of *Om · Ma · Ni · Pad · Me · Hum*, so the mantra cycles ten times a minute: a quiet bell at the syllable's pitch plus a sub-octave voice shaped by two gliding formant filters into each vowel.
+- **An "Om" drone (with `sound`).** While sound is on, a continuous 136.1 Hz sine (the "Om" tone) plays with a quiet 528 Hz layer, fading in and out gently. Several clocks on one page share one drone.
 - **Rim rubbing (easter egg).** Circle the centre with your cursor or finger and the bowl starts to sing: a sustained drone whose volume and brightness follow how fast you circle, while the lines and hub vibrate, small ripples leave the rim, and phones give a light buzz.
 - **Any time zone.** Pass an IANA zone like `Asia/Kathmandu`.
 - **Themeable.** Colours and fonts through CSS custom properties; follows `currentColor` by default.
@@ -30,7 +30,7 @@ No dependencies, no build step, one file. Works in plain HTML, React, Vue, Svelt
 **From a CDN** (no install):
 
 ```html
-<script type="module" src="https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.2.0/lotus-clock.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.3.0/lotus-clock.js"></script>
 ```
 
 **With npm** (straight from GitHub):
@@ -49,7 +49,7 @@ import 'lotus-clock';                    // registers <lotus-clock>
 ## Quick start
 
 ```html
-<script type="module" src="https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.2.0/lotus-clock.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.3.0/lotus-clock.js"></script>
 
 <lotus-clock style="width: 480px"></lotus-clock>
 ```
@@ -72,7 +72,7 @@ The clock is square by default and fills the width you give it (minimum 200px). 
 | `hour12` | off | Show a 12-hour clock. |
 | `labels` | `on` | `off` hides the seconds numbers round the dial. |
 | `finale` | `on` | `off` turns off the end-of-minute spin, lotus and glow. |
-| `sound` | off | Turns on the *ambient* sound: the per-second mantra, the swell into the minute, the :00 strike and the countdown bells. Pressing the middle and rubbing the rim always sound, because they are deliberate. Audio starts after the first click, tap or key press (browser autoplay rules). |
+| `sound` | off | Turns on the *ambient* sound: the 136.1 Hz drone, the swell into the minute, the :00 strike and the countdown bells. Pressing the middle and rubbing the rim always sound, because they are deliberate. Audio starts after the first click, tap or key press (browser autoplay rules). |
 | `interactive` | `true` | `false` hides the press-the-middle bowl button. |
 | `countdown` | none | Start in countdown mode with this duration: `"25:00"`, `"1:30:00"` or seconds (`"90"`). |
 | `autostart` | off | With `countdown`, start counting immediately. |
@@ -104,7 +104,7 @@ All events bubble and cross shadow boundaries. `event.detail.mode` is always set
 
 | Event | When | `detail` |
 | --- | --- | --- |
-| `second` | Each new second (or countdown second) | `{ value: { a, b, slot, key }, syllable }`, where `syllable` is `'Om'`, `'Ma'`, `'Ni'`, `'Pad'`, `'Me'` or `'Hum'` (`slot % 6`) |
+| `second` | Each new second (or countdown second) | `{ value: { a, b, slot, key }, syllable }`, where `syllable` names the second in the cycle *Om · Ma · Ni · Pad · Me · Hum* (`slot % 6`), handy for visuals |
 | `minute` | When the minute changes | `{ value }` |
 | `complete` | A countdown reaches 00:00 | — |
 | `start`, `pause` | Countdown started / paused | — |
@@ -158,7 +158,7 @@ lotus-clock::part(petal) { stroke-width: 1.2px; }
 <button id="go">Start focus</button>
 
 <script type="module">
-  import 'https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.2.0/lotus-clock.js';
+  import 'https://cdn.jsdelivr.net/gh/Sagunnn/lotus-clock@1.3.0/lotus-clock.js';
 
   const clock = document.getElementById('pomodoro');
   const plan = ['25:00', '5:00', '25:00', '5:00', '25:00', '5:00', '25:00', '15:00'];
@@ -264,7 +264,7 @@ Current Chrome, Edge, Safari and Firefox. It uses Custom Elements, Shadow DOM, `
 - From :56 the dial adds one full turn and every line eases into a closed petal outline aimed at its own second: line `s` joins ring `s % 3`, so the 60 lines make three rings of 20 petals, and each line's own path is filled, so the petals are the lines. A disc with an 18-circle rosette and a radial glow fade in at the centre, and rings close in on the digits.
 - At :00 every petal gets a CSS `bloom` animation: `scale(0.95)` → `scale(1.16)` and fade, with `cubic-bezier(0.22, 1, 0.36, 1)` and `calc(var(--petal-index) * 8ms)` delays, plus the ring-staggered shockwave. A masked copy of the digits reveals a ripple of light, and the hub trembles (a decaying 2.5 px micro-tremor over 1.5 s).
 - **The bowl.** Each strike spawns three modal partials at ×1.0 (216 Hz), ×2.756 and ×5.404. Each partial is a *pair* of sines, the second detuned by +1.4, +2.8 and +4.2 Hz, so their phases drift in and out: the bowl's natural pulsing, with no LFO. A 15 ms linear attack avoids clicks; decays are tiered at 9 s, 5.5 s and 2.2 s; 25 ms of low-passed noise adds the wooden mallet's contact. Every node disconnects itself when it finishes, so overlapping strikes layer cleanly. Everything runs through a low-pass filter, a generated room reverb and a faint echo.
-- **The mantra.** Each second plays one of six syllables on a calm contour (216, 243, 270, 243, 216, 162 Hz). A sawtooth an octave below runs through two parallel band-pass filters (Q 7 and 8.5) whose centre frequencies glide between vowel formants, e.g. *Om* from O (450/800 Hz) into a nasal M (280/900 Hz); a sine bell at the pitch adds the strike, and *Pad* gets an 8 ms plosive. Small random variations in pitch, level and length keep it organic.
+- **The drone.** Two pure sines, 136.1 Hz and 528 Hz (the latter at 5% of the former), go straight to the output at a level of 0.12, under the bowl strikes. Change `OM_LEVEL` in the source for more or less presence. A small reference count keeps a single drone running while any clock on the page has `sound` on.
 - **Rim rubbing.** Pointer movement around the hub is turned into an angle with `Math.atan2`, and its smoothed rate of change into angular velocity. A steady circle above ~2 rad/s swells a sustained drone (the ×1.0 and ×2.756 beating pairs) whose gain, upper-partial level and filter brightness follow your speed; when you stop it decays naturally, and its oscillators are torn down after a few quiet seconds.
 
 ## Development
