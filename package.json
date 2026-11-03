@@ -1,6 +1,6 @@
 {
   "name": "lotus-clock",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "A kinetic clock web component: straight lines that curl into a lotus as the minute turns.",
   "type": "module",
   "main": "lotus-clock.js",

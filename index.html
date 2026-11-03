@@ -46,8 +46,6 @@
     select option { color: #141413; }
     .status { color: var(--muted); margin-top: 14px; min-height: 1.5em; text-align: center; transition: opacity .22s ease; }
     .status.fading { opacity: 0; }
-    .chant { text-align: center; margin-top: 10px; min-height: 1.5em; color: var(--accent); letter-spacing: .3em; transition: opacity .3s ease; }
-    .chant span { color: var(--muted); letter-spacing: .08em; }
     code { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; }
   </style>
 </head>
@@ -85,7 +83,6 @@
           <button type="button" id="theme" aria-pressed="false">Dark</button>
         </div>
       </div>
-      <p class="chant mono" id="chant" aria-hidden="true"></p>
       <p class="status mono" id="status" aria-live="polite">Press the middle of the clock to ring the bowl — or circle the rim.</p>
     </div>
   </main>
@@ -165,14 +162,6 @@
       say('Keep circling the rim to make the bowl sing.');
     });
     clock.addEventListener('rubend', () => hintNext(1200));
-
-    // The sung chant (with Sound on): show each syllable and its pitch as it begins.
-    const chantEl = document.getElementById('chant');
-    clock.addEventListener('syllable', (e) => {
-      const { syllable, hz } = e.detail;
-      chantEl.innerHTML = `${syllable} <span>· ${hz} Hz</span>`;
-    });
-    document.getElementById('sound').addEventListener('click', () => { if (!clock.hasAttribute('sound')) chantEl.textContent = ''; });
   </script>
 </body>
 </html>
